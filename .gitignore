@@ -19,6 +19,31 @@ target/
 *.iml
 *.ipr
 
+# Ignore the target directory
+/target/
+
+# Ignore IntelliJ project files
+.idea/
+*.iml
+
+# Ignore Maven wrapper files
+.mvn/
+mvnw
+mvnw.cmd
+
+# Ignore log files
+*.log
+
+# Ignore environment variable files
+.env
+config.properties
+
+# Ignore sensitive configuration files
+/src/main/resources/application.properties
+/src/main/resources/application.yml
+
+# Ignore any other configuration files where API keys might be stored
+
 ### NetBeans ###
 /nbproject/private/
 /nbbuild/

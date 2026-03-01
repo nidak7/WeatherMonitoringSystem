@@ -70,7 +70,7 @@ Frontend URL: `http://localhost:5173`
 2. Open the dashboard and search any city.
 3. Check that current weather, forecast cards, and risk badge are visible.
 4. Scroll to `Daily Summary And Alerts` and confirm values are filled.
-5. If weather is hot/severe, alerts should show in plain words (not system codes).
+5. If weather is hot/severe, alerts should show in plain words.
 6. Wait 2 minutes and verify the update time changes.
 
 ## Config you can tweak

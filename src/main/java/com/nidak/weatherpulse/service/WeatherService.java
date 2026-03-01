@@ -146,6 +146,7 @@ public class WeatherService {
         Weather saved = weatherRepository.save(weatherRecord);
         upsertDailySummary(saved.getCity(), saved.getTimestamp().toLocalDate());
         evaluateThresholds(saved, true);
+        saveSystemAlerts(saved);
         return saved;
     }
 
@@ -540,6 +541,108 @@ public class WeatherService {
             return "Rain Risk";
         }
 
+        if ((condition.contains("clear") || description.contains("clear") || description.contains("sun"))
+                && weatherCode == 800) {
+            return "Sunny/Heat Risk";
+        }
+
         return "Low Risk";
+    }
+
+    private void saveSystemAlerts(Weather weather) {
+        String city = normalizeCity(weather.getCity());
+        List<WeatherAlert> systemAlerts = new ArrayList<>();
+
+        if (isSunnyAndHot(weather)) {
+            systemAlerts.add(buildSystemAlert(
+                    city,
+                    "system.heat.sunny",
+                    "Sunny and hot conditions detected",
+                    weather.getTemperature() + " C",
+                    ">= 34 C with clear sky"
+            ));
+        }
+
+        if (weather.getTemperature() >= 40) {
+            systemAlerts.add(buildSystemAlert(
+                    city,
+                    "system.heat.extreme",
+                    "Extreme heat warning",
+                    weather.getTemperature() + " C",
+                    ">= 40 C"
+            ));
+        }
+
+        if (weather.getWeatherRisk() != null && weather.getWeatherRisk().toLowerCase(Locale.ROOT).contains("cyclone")) {
+            systemAlerts.add(buildSystemAlert(
+                    city,
+                    "system.cyclone",
+                    "Cyclone-like weather pattern detected",
+                    weather.getWindSpeed() + " m/s",
+                    "High risk wind profile"
+            ));
+        }
+
+        if (weather.getWeatherRisk() != null && weather.getWeatherRisk().toLowerCase(Locale.ROOT).contains("sandstorm")) {
+            systemAlerts.add(buildSystemAlert(
+                    city,
+                    "system.sandstorm",
+                    "Sandstorm or dust-storm risk detected",
+                    weather.getWeatherDescription(),
+                    "Airborne dust/sand pattern"
+            ));
+        }
+
+        if (weather.getWeatherRisk() != null && weather.getWeatherRisk().toLowerCase(Locale.ROOT).contains("snow")) {
+            systemAlerts.add(buildSystemAlert(
+                    city,
+                    "system.snow",
+                    "Snowfall risk detected",
+                    weather.getWeatherDescription(),
+                    "Snow weather code range"
+            ));
+        }
+
+        for (WeatherAlert alert : systemAlerts) {
+            saveAlertIfNotRecentDuplicate(alert, 30);
+        }
+    }
+
+    private WeatherAlert buildSystemAlert(
+            String city,
+            String alertType,
+            String alertMessage,
+            String observedValue,
+            String thresholdValue
+    ) {
+        WeatherAlert alert = new WeatherAlert();
+        alert.setCity(city);
+        alert.setAlertType(alertType);
+        alert.setAlertMessage(alertMessage);
+        alert.setObservedValue(observedValue);
+        alert.setThresholdValue(thresholdValue);
+        alert.setCreatedAt(LocalDateTime.now());
+        return alert;
+    }
+
+    private void saveAlertIfNotRecentDuplicate(WeatherAlert alert, long dedupMinutes) {
+        WeatherAlert previous = weatherAlertRepository.findTopByCityAndAlertTypeOrderByCreatedAtDesc(
+                alert.getCity(),
+                alert.getAlertType()
+        );
+
+        if (previous != null && previous.getCreatedAt() != null
+                && previous.getCreatedAt().isAfter(LocalDateTime.now().minusMinutes(dedupMinutes))) {
+            return;
+        }
+
+        weatherAlertRepository.save(alert);
+    }
+
+    private boolean isSunnyAndHot(Weather weather) {
+        String condition = weather.getWeatherCondition() == null ? "" : weather.getWeatherCondition().toLowerCase(Locale.ROOT);
+        String description = weather.getWeatherDescription() == null ? "" : weather.getWeatherDescription().toLowerCase(Locale.ROOT);
+        boolean sunny = condition.contains("clear") || description.contains("clear") || description.contains("sun");
+        return sunny && weather.getTemperature() >= 34;
     }
 }

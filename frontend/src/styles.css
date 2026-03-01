@@ -309,6 +309,13 @@ h1 {
   text-transform: capitalize;
 }
 
+.heat-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: #8a3f54;
+  font-weight: 600;
+}
+
 .risk-pill {
   margin: 0.62rem 0 0;
   width: fit-content;

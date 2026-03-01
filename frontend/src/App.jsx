@@ -60,12 +60,14 @@ function formatDateOnly(value) {
   }).format(new Date(value));
 }
 
-function deriveRisk(condition, description, windSpeed) {
+function deriveRisk(condition, description, windSpeed, temperature) {
   const text = `${condition || ""} ${description || ""}`.toLowerCase();
   if (text.includes("cyclone") || text.includes("hurricane") || text.includes("tornado")) return "Cyclone Risk";
   if (text.includes("sand") || text.includes("dust")) return "Sandstorm/Dust Risk";
   if (text.includes("snow")) return "Snow Risk";
   if (text.includes("thunder")) return "Thunderstorm Risk";
+  if ((condition || "").toLowerCase().includes("clear") && (temperature || 0) >= 34) return "Sunny/Heat Risk";
+  if ((temperature || 0) >= 40) return "Extreme Heat Risk";
   if ((windSpeed || 0) >= 20) return "Cyclone-like Wind Risk";
   if ((windSpeed || 0) >= 14) return "Strong Wind Risk";
   if (text.includes("rain")) return "Rain Risk";
@@ -76,8 +78,112 @@ function riskClass(risk) {
   if (!risk) return "risk-low";
   const label = risk.toLowerCase();
   if (label.includes("cyclone") || label.includes("sandstorm")) return "risk-high";
-  if (label.includes("snow") || label.includes("thunder") || label.includes("strong")) return "risk-medium";
+  if (label.includes("snow") || label.includes("thunder") || label.includes("strong") || label.includes("heat")) {
+    return "risk-medium";
+  }
   return "risk-low";
+}
+
+function isSunnyAndHot(weather) {
+  if (!weather) return false;
+  const condition = (weather.weatherCondition || "").toLowerCase();
+  const description = (weather.weatherDescription || "").toLowerCase();
+  return (condition.includes("clear") || description.includes("sun")) && Number(weather.temperature || 0) >= 34;
+}
+
+function buildClientSummary(city, currentWeather, forecast) {
+  const records = [currentWeather, ...(forecast || [])].filter(Boolean);
+  if (!records.length) return null;
+
+  const temperatures = records
+    .map((item) => Number(item.temperature))
+    .filter((value) => !Number.isNaN(value));
+  if (!temperatures.length) return null;
+
+  const weatherCount = {};
+  records.forEach((item) => {
+    const key = item.weatherCondition || "Unknown";
+    weatherCount[key] = (weatherCount[key] || 0) + 1;
+  });
+  const dominant = Object.entries(weatherCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "Unknown";
+
+  const avgHumidity =
+    records.reduce((acc, item) => acc + Number(item.humidity || 0), 0) / Math.max(1, records.length);
+  const avgWind =
+    records.reduce((acc, item) => acc + Number(item.windSpeed || 0), 0) / Math.max(1, records.length);
+  const timestamp = records[0]?.timestamp ? new Date(records[0].timestamp) : new Date();
+  const summaryDate = timestamp.toISOString().slice(0, 10);
+
+  return {
+    city,
+    summaryDate,
+    averageTemperature: Number((temperatures.reduce((a, b) => a + b, 0) / temperatures.length).toFixed(2)),
+    maxTemperature: Number(Math.max(...temperatures).toFixed(2)),
+    minTemperature: Number(Math.min(...temperatures).toFixed(2)),
+    dominantWeatherCondition: dominant,
+    averageHumidity: Number(avgHumidity.toFixed(2)),
+    averageWindSpeed: Number(avgWind.toFixed(2)),
+    totalSamples: records.length
+  };
+}
+
+function buildClientAlerts(currentWeather, forecast) {
+  if (!currentWeather) return [];
+
+  const alerts = [];
+  const now = new Date().toISOString();
+
+  if (isSunnyAndHot(currentWeather)) {
+    alerts.push({
+      id: `heat-${now}`,
+      createdAt: now,
+      alertType: "system.heat.sunny",
+      alertMessage: "Sunny and hot conditions detected",
+      observedValue: `${currentWeather.temperature} C`,
+      thresholdValue: ">= 34 C with clear sky"
+    });
+  }
+
+  const liveRisk = deriveRisk(
+    currentWeather.weatherCondition,
+    currentWeather.weatherDescription,
+    currentWeather.windSpeed,
+    currentWeather.temperature
+  );
+  if (liveRisk !== "Low Risk" && !liveRisk.includes("Rain")) {
+    alerts.push({
+      id: `risk-${now}`,
+      createdAt: now,
+      alertType: "system.risk.live",
+      alertMessage: `${liveRisk} detected`,
+      observedValue: currentWeather.weatherDescription || currentWeather.weatherCondition,
+      thresholdValue: "Severe condition detected"
+    });
+  }
+
+  const severeForecast = (forecast || []).find((item) => {
+    const risk = deriveRisk(item.weatherCondition, item.weatherDescription, item.windSpeed, item.temperature);
+    return risk !== "Low Risk" && !risk.includes("Rain");
+  });
+
+  if (severeForecast) {
+    const futureRisk = deriveRisk(
+      severeForecast.weatherCondition,
+      severeForecast.weatherDescription,
+      severeForecast.windSpeed,
+      severeForecast.temperature
+    );
+    alerts.push({
+      id: `forecast-${severeForecast.timestamp}`,
+      createdAt: severeForecast.timestamp,
+      alertType: "system.risk.forecast",
+      alertMessage: `${futureRisk} likely in forecast`,
+      observedValue: severeForecast.weatherDescription || severeForecast.weatherCondition,
+      thresholdValue: formatTime(severeForecast.timestamp)
+    });
+  }
+
+  return alerts.slice(0, 5);
 }
 
 async function fetchJson(url) {
@@ -224,17 +330,22 @@ function App() {
       }
     }
 
+    const computedSummary = buildClientSummary(normalizedCity, currentData, forecastData);
+    const computedAlerts = buildClientAlerts(currentData, forecastData);
+
     try {
       const [summaryPayload, alertsPayload] = await Promise.all([
         fetchJson(`${API_BASE_URL}/api/weather/daily-summary/${encodeURIComponent(normalizedCity)}`),
         fetchJson(`${API_BASE_URL}/api/weather/alerts?city=${encodeURIComponent(normalizedCity)}`)
       ]);
-      setDailySummary(summaryPayload.data || null);
-      setAlerts(Array.isArray(alertsPayload.data) ? alertsPayload.data.slice(0, 5) : []);
+      const serverSummary = summaryPayload.data || null;
+      const serverAlerts = Array.isArray(alertsPayload.data) ? alertsPayload.data.slice(0, 5) : [];
+      setDailySummary(serverSummary || computedSummary);
+      setAlerts(serverAlerts.length ? serverAlerts : computedAlerts);
       setAnalyticsAvailable(true);
     } catch {
-      setDailySummary(null);
-      setAlerts([]);
+      setDailySummary(computedSummary);
+      setAlerts(computedAlerts);
       setAnalyticsAvailable(false);
     }
 
@@ -386,8 +497,9 @@ function App() {
               </h2>
               <p className="condition">{currentWeather?.weatherCondition || "Waiting for data"}</p>
               <p className="condition-sub">{currentWeather?.weatherDescription || "No detailed description yet"}</p>
-              <p className={`risk-pill ${riskClass(currentWeather?.weatherRisk || deriveRisk(currentWeather?.weatherCondition, currentWeather?.weatherDescription, currentWeather?.windSpeed))}`}>
-                {currentWeather?.weatherRisk || deriveRisk(currentWeather?.weatherCondition, currentWeather?.weatherDescription, currentWeather?.windSpeed)}
+              {isSunnyAndHot(currentWeather) ? <p className="heat-note">Sunny and hot, heat advisory in effect.</p> : null}
+              <p className={`risk-pill ${riskClass(currentWeather?.weatherRisk || deriveRisk(currentWeather?.weatherCondition, currentWeather?.weatherDescription, currentWeather?.windSpeed, currentWeather?.temperature))}`}>
+                {currentWeather?.weatherRisk || deriveRisk(currentWeather?.weatherCondition, currentWeather?.weatherDescription, currentWeather?.windSpeed, currentWeather?.temperature)}
               </p>
               <p className="timestamp">Updated {formatDateTime(currentWeather?.timestamp)}</p>
             </article>
@@ -439,7 +551,16 @@ function App() {
                 <p>Feels like: <strong>{toDisplayTemp(selectedForecast.feelsLike, unit)} {unit}</strong></p>
                 <p>Humidity: <strong>{selectedForecast.humidity}%</strong></p>
                 <p>Wind: <strong>{selectedForecast.windSpeed} m/s</strong></p>
-                <p>Risk: <strong>{selectedForecast.weatherRisk || deriveRisk(selectedForecast.weatherCondition, selectedForecast.weatherDescription, selectedForecast.windSpeed)}</strong></p>
+                <p>
+                  Risk: <strong>
+                    {selectedForecast.weatherRisk || deriveRisk(
+                      selectedForecast.weatherCondition,
+                      selectedForecast.weatherDescription,
+                      selectedForecast.windSpeed,
+                      selectedForecast.temperature
+                    )}
+                  </strong>
+                </p>
               </div>
             ) : (
               <p className="empty-msg">{loading ? "Loading forecast..." : "No forecast data yet."}</p>
@@ -458,8 +579,8 @@ function App() {
                 <p className="watch-city">{item.city}</p>
                 <p className="watch-temp">{toDisplayTemp(item.temperature, unit)} {unit}</p>
                 <p className="watch-condition">{item.weatherCondition}</p>
-                <p className={`risk-pill ${riskClass(item.weatherRisk || deriveRisk(item.weatherCondition, item.weatherDescription, item.windSpeed))}`}>
-                  {item.weatherRisk || deriveRisk(item.weatherCondition, item.weatherDescription, item.windSpeed)}
+                <p className={`risk-pill ${riskClass(item.weatherRisk || deriveRisk(item.weatherCondition, item.weatherDescription, item.windSpeed, item.temperature))}`}>
+                  {item.weatherRisk || deriveRisk(item.weatherCondition, item.weatherDescription, item.windSpeed, item.temperature)}
                 </p>
               </article>
             ))}

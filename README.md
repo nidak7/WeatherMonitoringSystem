@@ -1,86 +1,83 @@
 # WeatherPulse
 
-WeatherPulse is a personal full-stack weather monitoring project built for portfolio-quality presentation.
-It provides live city weather data, forecast visualization, historical persistence, and a polished React dashboard.
+A simple weather monitoring project I built with Spring Boot + React.
+It shows live weather for any city, keeps weather history in a database, and has a responsive frontend for quick city checks.
 
-## Stack
+## Live Project
 
-- Backend: Java 17, Spring Boot 3, Spring Data JPA
-- Database: H2 (default), MySQL-compatible via environment variables
-- Weather provider: OpenWeatherMap API
-- Frontend: React + Vite
-- Deployment-ready: Docker (backend), Vercel config (frontend), Render blueprint (backend)
+- Frontend (GitHub Pages): **https://nidak7.github.io/WeatherMonitoringSystem/**
 
-## Features
+## What this app does
 
-- Live weather for any city (`/api/weather/current/{city}`)
-- 5-day forecast (`/api/weather/forecast/{city}`)
-- Historical weather by date (`/api/weather/history/{city}?date=yyyy-MM-dd`)
-- Daily weather summary (`/api/weather/summary/{city}?date=yyyy-MM-dd`)
-- Threshold-based alert checks
-- Auto-poll scheduler for tracked cities
-- Recruiter-ready responsive frontend with live refresh
+- Search weather by city
+- View current weather (temperature, feels like, humidity, wind speed)
+- View short-term forecast cards
+- Click forecast cards to inspect details
+- Auto-refresh weather updates
+- Store weather entries through backend APIs
+- Fall back to Open-Meteo in frontend when backend is not reachable
 
-## Project Structure
+## Tech stack
+
+- Java 17
+- Spring Boot 3
+- Spring Data JPA
+- H2 (default local DB), MySQL supported via env vars
+- React + Vite
+- GitHub Actions + GitHub Pages (frontend deployment)
+- Docker + Render blueprint (backend deployment template)
+
+## Project structure
 
 ```text
 weather/
-  src/                      # Spring Boot API
-  frontend/                 # React app
-  Dockerfile                # Backend container
-  render.yaml               # Render backend deployment template
-  .env.example              # Backend env reference
+  src/                      # Spring Boot backend
+  frontend/                 # React frontend
+  .github/workflows/        # CI/CD workflow for GitHub Pages
+  Dockerfile                # Backend container build
+  render.yaml               # Backend deployment blueprint
 ```
 
-## Backend Setup
+## Local run
 
-1. Create an OpenWeatherMap API key.
-2. Copy `.env.example` values into your environment.
-3. Run:
+### Backend
+
+1. Set `OPENWEATHER_API_KEY`
+2. Run:
 
 ```bash
 ./mvnw spring-boot:run
 ```
 
-Server starts on `http://localhost:8080` by default.
+Backend starts at `http://localhost:8080`.
 
-## Frontend Setup
-
-1. Go to frontend folder:
+### Frontend
 
 ```bash
 cd frontend
-```
-
-2. Set API base URL:
-
-```bash
-cp .env.example .env
-```
-
-3. Install and run:
-
-```bash
 npm install
 npm run dev
 ```
 
-Frontend starts on `http://localhost:5173`.
+Frontend starts at `http://localhost:5173`.
 
-## Important Environment Variables
+## Environment variables
 
 ### Backend
 
-- `OPENWEATHER_API_KEY` (required)
-- `PORT` (optional, default `8080`)
-- `APP_CORS_ALLOWED_ORIGINS` (optional)
-- `SPRING_DATASOURCE_*` (optional for external DB)
+- `OPENWEATHER_API_KEY` (required for OpenWeather calls)
+- `PORT` (default: `8080`)
+- `APP_CORS_ALLOWED_ORIGINS`
+- `SPRING_DATASOURCE_URL`
+- `SPRING_DATASOURCE_USERNAME`
+- `SPRING_DATASOURCE_PASSWORD`
+- `SPRING_DATASOURCE_DRIVER_CLASS_NAME`
 
 ### Frontend
 
-- `VITE_API_BASE_URL` (API URL, default `http://localhost:8080`)
+- `VITE_API_BASE_URL` (default: `http://localhost:8080`)
 
-## API Endpoints
+## API endpoints
 
 - `GET /api/weather/current/{city}`
 - `GET /api/weather/forecast/{city}`
@@ -93,22 +90,20 @@ Frontend starts on `http://localhost:5173`.
 - `POST /api/weather/check`
 - `POST /api/weather/simulate/{city}`
 
-## Deployment
+## How to check full project flow
 
-### Backend (Render or any Docker host)
-
-- Build/deploy using `Dockerfile`
-- Add env vars from `.env.example`
-- Use `render.yaml` directly on Render for quick setup
-
-### Frontend (Vercel)
-
-- Import `frontend/` as project root
-- Add `VITE_API_BASE_URL=https://your-backend-domain`
-- `vercel.json` is already configured for Vite SPA routing
+1. Open the live link: `https://nidak7.github.io/WeatherMonitoringSystem/`
+2. Search a city name (for example: `Bangalore`, `Pune`, `London`).
+3. Check top-right source label:
+   - `Backend API` means hosted backend responded.
+   - `Open-Meteo fallback` means frontend switched to direct weather source.
+4. Click different forecast cards to verify interactive detail updates.
+5. Toggle `C/F` and verify temperature conversion.
+6. If you want to test backend APIs directly, run backend locally and hit:
+   - `http://localhost:8080/api/weather/current/Bangalore`
+   - `http://localhost:8080/api/weather/forecast/Bangalore`
 
 ## Notes
 
-- The app defaults to H2 file DB for local simplicity.
-- Switch to MySQL by setting `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, and driver class.
-- If `OPENWEATHER_API_KEY` is missing, API returns a clear error response.
+- Frontend deployment is automatic from `master` through `.github/workflows/deploy-pages.yml`.
+- `render.yaml` and `Dockerfile` are included for backend hosting on Render or any Docker host.

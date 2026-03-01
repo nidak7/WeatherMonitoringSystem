@@ -12,6 +12,8 @@ import lombok.Setter;
 public class WeatherThreshold {
     private String condition;
     private double threshold;
+    private String weatherCondition;
+    private int consecutiveUpdates = 2;
     private String alertMessage;
 
 }

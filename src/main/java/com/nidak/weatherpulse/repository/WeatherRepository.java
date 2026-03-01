@@ -9,6 +9,6 @@ import java.util.List;
 public interface WeatherRepository extends JpaRepository<Weather, Long> {
     List<Weather> findByCityAndTimestampBetween(String city, LocalDateTime start, LocalDateTime end);
     Weather findByCityAndTimestamp(String city, LocalDateTime timestamp);
-
+    Weather findTopByCityOrderByTimestampDesc(String city);
 
 }

@@ -1,7 +1,9 @@
 package com.nidak.weatherpulse.controller;
 
 import com.nidak.weatherpulse.dto.ApiResponse;
+import com.nidak.weatherpulse.entity.DailyWeatherSummaryEntity;
 import com.nidak.weatherpulse.entity.Weather;
+import com.nidak.weatherpulse.entity.WeatherAlert;
 import com.nidak.weatherpulse.entity.WeatherSummary;
 import com.nidak.weatherpulse.entity.WeatherThreshold;
 import com.nidak.weatherpulse.service.WeatherService;
@@ -38,7 +40,13 @@ public class WeatherController {
     @GetMapping("/current/{city}")
     public ResponseEntity<ApiResponse<Weather>> getCurrentWeather(@PathVariable String city) {
         Weather currentWeather = weatherService.fetchCurrentWeather(city);
-        return ResponseEntity.ok(ApiResponse.of("Live weather fetched for " + city, currentWeather));
+        return ResponseEntity.ok(ApiResponse.of("Latest weather fetched for " + city, currentWeather));
+    }
+
+    @GetMapping("/current/tracked")
+    public ResponseEntity<ApiResponse<List<Weather>>> getTrackedCurrentWeather() {
+        List<Weather> currentWeatherList = weatherService.getLatestWeatherForTrackedCities();
+        return ResponseEntity.ok(ApiResponse.of("Latest tracked city weather fetched", currentWeatherList));
     }
 
     @GetMapping("/forecast/{city}")
@@ -99,5 +107,35 @@ public class WeatherController {
     @GetMapping("/cities")
     public ResponseEntity<ApiResponse<List<String>>> getTrackedCities() {
         return ResponseEntity.ok(ApiResponse.of("Tracked city list", weatherService.getTrackedCities()));
+    }
+
+    @GetMapping("/daily-summary/{city}")
+    public ResponseEntity<ApiResponse<DailyWeatherSummaryEntity>> getDailySummary(
+            @PathVariable String city,
+            @RequestParam(required = false) String date
+    ) {
+        LocalDate summaryDate = date == null || date.isBlank() ? LocalDate.now() : LocalDate.parse(date);
+        DailyWeatherSummaryEntity summary = weatherService.getDailySummary(city, summaryDate);
+        return ResponseEntity.ok(ApiResponse.of("Daily weather summary fetched for " + city, summary));
+    }
+
+    @GetMapping("/daily-summary/tracked")
+    public ResponseEntity<ApiResponse<List<DailyWeatherSummaryEntity>>> getTrackedCityDailySummary(
+            @RequestParam(required = false) String date
+    ) {
+        LocalDate summaryDate = date == null || date.isBlank() ? LocalDate.now() : LocalDate.parse(date);
+        return ResponseEntity.ok(
+                ApiResponse.of("Tracked city daily summaries fetched", weatherService.getTrackedCityDailySummaries(summaryDate))
+        );
+    }
+
+    @GetMapping("/alerts")
+    public ResponseEntity<ApiResponse<List<WeatherAlert>>> getAlerts(
+            @RequestParam(required = false) String city
+    ) {
+        List<WeatherAlert> alerts = (city == null || city.isBlank())
+                ? weatherService.getRecentAlerts()
+                : weatherService.getRecentAlertsForCity(city);
+        return ResponseEntity.ok(ApiResponse.of("Recent alerts fetched", alerts));
     }
 }

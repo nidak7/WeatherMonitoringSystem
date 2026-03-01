@@ -1,13 +1,19 @@
 package com.nidak.weatherpulse.service;
 
+import com.nidak.weatherpulse.entity.DailyWeatherSummaryEntity;
 import com.nidak.weatherpulse.entity.Weather;
+import com.nidak.weatherpulse.entity.WeatherAlert;
 import com.nidak.weatherpulse.entity.WeatherSummary;
 import com.nidak.weatherpulse.entity.WeatherThreshold;
 import com.nidak.weatherpulse.exception.WeatherServiceException;
+import com.nidak.weatherpulse.repository.DailyWeatherSummaryRepository;
+import com.nidak.weatherpulse.repository.WeatherAlertRepository;
 import com.nidak.weatherpulse.repository.WeatherRepository;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -19,10 +25,13 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -43,12 +52,24 @@ public class WeatherService {
     @Value("${weather.tracked-cities:Delhi,Mumbai,Chennai,Bangalore,Kolkata,Hyderabad}")
     private String trackedCitiesConfig;
 
+    @Value("${weather.data-stale-minutes:3}")
+    private long weatherDataStaleMinutes;
+
     private final WeatherRepository weatherRepository;
+    private final DailyWeatherSummaryRepository dailyWeatherSummaryRepository;
+    private final WeatherAlertRepository weatherAlertRepository;
+
     private final List<WeatherThreshold> thresholds = new ArrayList<>();
     private final Map<String, Integer> consecutiveBreaches = new HashMap<>();
 
-    public WeatherService(WeatherRepository weatherRepository) {
+    public WeatherService(
+            WeatherRepository weatherRepository,
+            DailyWeatherSummaryRepository dailyWeatherSummaryRepository,
+            WeatherAlertRepository weatherAlertRepository
+    ) {
         this.weatherRepository = weatherRepository;
+        this.dailyWeatherSummaryRepository = dailyWeatherSummaryRepository;
+        this.weatherAlertRepository = weatherAlertRepository;
     }
 
     public List<String> getTrackedCities() {
@@ -58,9 +79,26 @@ public class WeatherService {
                 .toList();
     }
 
+    @EventListener(ApplicationReadyEvent.class)
+    public void warmUpTrackedCitiesOnStartup() {
+        fetchWeatherForAllCities();
+    }
+
     public void setThreshold(WeatherThreshold threshold) {
         if (threshold == null || threshold.getCondition() == null || threshold.getCondition().isBlank()) {
             throw new WeatherServiceException(HttpStatus.BAD_REQUEST, "Threshold condition is required.");
+        }
+
+        if ("weatherCondition".equalsIgnoreCase(threshold.getCondition())
+                && (threshold.getWeatherCondition() == null || threshold.getWeatherCondition().isBlank())) {
+            throw new WeatherServiceException(
+                    HttpStatus.BAD_REQUEST,
+                    "weatherCondition value is required when condition is weatherCondition."
+            );
+        }
+
+        if (threshold.getConsecutiveUpdates() <= 0) {
+            threshold.setConsecutiveUpdates(2);
         }
         thresholds.add(threshold);
     }
@@ -69,23 +107,7 @@ public class WeatherService {
         if (weather == null) {
             throw new WeatherServiceException(HttpStatus.BAD_REQUEST, "Weather payload is required.");
         }
-        String city = normalizeCity(weather.getCity());
-        for (WeatherThreshold threshold : thresholds) {
-            if ("temperature".equalsIgnoreCase(threshold.getCondition())) {
-                double thresholdTemp = threshold.getThreshold();
-                if (weather.getTemperature() > thresholdTemp) {
-                    consecutiveBreaches.put(city, consecutiveBreaches.getOrDefault(city, 0) + 1);
-                    if (consecutiveBreaches.get(city) >= 2) {
-                        return threshold.getAlertMessage() == null || threshold.getAlertMessage().isBlank()
-                                ? "Temperature threshold breached for " + city
-                                : threshold.getAlertMessage();
-                    }
-                } else {
-                    consecutiveBreaches.put(city, 0);
-                }
-            }
-        }
-        return "Temperature is within the configured threshold.";
+        return evaluateThresholds(weather, false);
     }
 
     @Scheduled(fixedRateString = "${weather.polling.fixed-rate-ms:300000}")
@@ -118,11 +140,36 @@ public class WeatherService {
         weatherRecord.setWindSpeed(mappedWeather.getWindSpeed());
         weatherRecord.setTimestamp(mappedWeather.getTimestamp());
 
-        return weatherRepository.save(weatherRecord);
+        Weather saved = weatherRepository.save(weatherRecord);
+        upsertDailySummary(saved.getCity(), saved.getTimestamp().toLocalDate());
+        evaluateThresholds(saved, true);
+        return saved;
     }
 
     public Weather fetchCurrentWeather(String city) {
-        return fetchWeatherData(city);
+        return getLatestWeatherForCity(city);
+    }
+
+    public Weather getLatestWeatherForCity(String city) {
+        String normalizedCity = normalizeCity(city);
+        Weather latestWeather = weatherRepository.findTopByCityOrderByTimestampDesc(normalizedCity);
+        if (latestWeather == null || isStale(latestWeather.getTimestamp())) {
+            return fetchWeatherData(normalizedCity);
+        }
+        return latestWeather;
+    }
+
+    public List<Weather> getLatestWeatherForTrackedCities() {
+        List<Weather> latestWeatherList = new ArrayList<>();
+        for (String city : getTrackedCities()) {
+            try {
+                latestWeatherList.add(getLatestWeatherForCity(city));
+            } catch (RuntimeException ignored) {
+                // Keep endpoint available even if one city fails.
+            }
+        }
+        latestWeatherList.sort(Comparator.comparing(Weather::getCity));
+        return latestWeatherList;
     }
 
     public List<Weather> fetchWeatherForecast(String city) {
@@ -139,8 +186,8 @@ public class WeatherService {
 
             Weather forecast = new Weather();
             forecast.setCity(normalizedCity);
-            forecast.setTemperature(roundToTwoDecimalPlaces(main.getDouble("temp")));
-            forecast.setFeelsLike(roundToTwoDecimalPlaces(main.optDouble("feels_like", 0)));
+            forecast.setTemperature(roundToTwoDecimalPlaces(kelvinToCelsius(main.getDouble("temp"))));
+            forecast.setFeelsLike(roundToTwoDecimalPlaces(kelvinToCelsius(main.optDouble("feels_like", 0))));
             forecast.setHumidity(main.optDouble("humidity", 0));
             forecast.setWindSpeed(wind == null ? 0 : wind.optDouble("speed", 0));
             forecast.setWeatherCondition(weatherCondition);
@@ -182,6 +229,29 @@ public class WeatherService {
         );
     }
 
+    public DailyWeatherSummaryEntity getDailySummary(String city, LocalDate date) {
+        String normalizedCity = normalizeCity(city);
+        return dailyWeatherSummaryRepository.findByCityAndSummaryDate(normalizedCity, date)
+                .orElseGet(() -> upsertDailySummary(normalizedCity, date));
+    }
+
+    public List<DailyWeatherSummaryEntity> getTrackedCityDailySummaries(LocalDate date) {
+        List<DailyWeatherSummaryEntity> summaries = new ArrayList<>();
+        for (String city : getTrackedCities()) {
+            summaries.add(getDailySummary(city, date));
+        }
+        summaries.sort(Comparator.comparing(DailyWeatherSummaryEntity::getCity));
+        return summaries;
+    }
+
+    public List<WeatherAlert> getRecentAlerts() {
+        return weatherAlertRepository.findTop50ByOrderByCreatedAtDesc();
+    }
+
+    public List<WeatherAlert> getRecentAlertsForCity(String city) {
+        return weatherAlertRepository.findTop20ByCityOrderByCreatedAtDesc(normalizeCity(city));
+    }
+
     public Weather simulateCurrentWeatherData(String city) {
         return fetchWeatherData(city);
     }
@@ -210,13 +280,127 @@ public class WeatherService {
 
         Weather currentWeather = new Weather();
         currentWeather.setCity(city);
-        currentWeather.setTemperature(roundToTwoDecimalPlaces(main.getDouble("temp")));
-        currentWeather.setFeelsLike(roundToTwoDecimalPlaces(main.optDouble("feels_like", 0)));
+        currentWeather.setTemperature(roundToTwoDecimalPlaces(kelvinToCelsius(main.getDouble("temp"))));
+        currentWeather.setFeelsLike(roundToTwoDecimalPlaces(kelvinToCelsius(main.optDouble("feels_like", 0))));
         currentWeather.setWeatherCondition(weatherCondition);
         currentWeather.setHumidity(main.optDouble("humidity", 0));
         currentWeather.setWindSpeed(wind == null ? 0 : wind.optDouble("speed", 0));
         currentWeather.setTimestamp(LocalDateTime.now().withSecond(0).withNano(0));
         return currentWeather;
+    }
+
+    private String evaluateThresholds(Weather weather, boolean persistAlert) {
+        if (thresholds.isEmpty()) {
+            return "No thresholds configured.";
+        }
+
+        String city = normalizeCity(weather.getCity());
+        for (WeatherThreshold threshold : thresholds) {
+            String thresholdCondition = threshold.getCondition() == null
+                    ? ""
+                    : threshold.getCondition().trim();
+
+            if ("temperature".equalsIgnoreCase(thresholdCondition)) {
+                String key = city + ":temperature:" + threshold.getThreshold();
+                if (weather.getTemperature() > threshold.getThreshold()) {
+                    int count = consecutiveBreaches.getOrDefault(key, 0) + 1;
+                    consecutiveBreaches.put(key, count);
+                    if (count == threshold.getConsecutiveUpdates()) {
+                        String alertMessage = buildTemperatureAlertMessage(weather, threshold);
+                        if (persistAlert) {
+                            saveAlert(city, "temperature", alertMessage, String.valueOf(weather.getTemperature()),
+                                    String.valueOf(threshold.getThreshold()));
+                        }
+                        return alertMessage;
+                    }
+                } else {
+                    consecutiveBreaches.put(key, 0);
+                }
+            }
+
+            if ("weatherCondition".equalsIgnoreCase(thresholdCondition)) {
+                String expectedCondition = threshold.getWeatherCondition();
+                if (expectedCondition == null || expectedCondition.isBlank()) {
+                    continue;
+                }
+
+                String key = city + ":weatherCondition:" + expectedCondition.toLowerCase(Locale.ROOT);
+                boolean matches = expectedCondition.equalsIgnoreCase(weather.getWeatherCondition());
+                if (matches) {
+                    int count = consecutiveBreaches.getOrDefault(key, 0) + 1;
+                    consecutiveBreaches.put(key, count);
+                    if (count == threshold.getConsecutiveUpdates()) {
+                        String alertMessage = buildConditionAlertMessage(weather, threshold);
+                        if (persistAlert) {
+                            saveAlert(city, "weatherCondition", alertMessage, weather.getWeatherCondition(), expectedCondition);
+                        }
+                        return alertMessage;
+                    }
+                } else {
+                    consecutiveBreaches.put(key, 0);
+                }
+            }
+        }
+
+        return "No alerts triggered.";
+    }
+
+    private String buildTemperatureAlertMessage(Weather weather, WeatherThreshold threshold) {
+        if (threshold.getAlertMessage() != null && !threshold.getAlertMessage().isBlank()) {
+            return threshold.getAlertMessage();
+        }
+        return "Temperature threshold breached for " + weather.getCity()
+                + ": current=" + weather.getTemperature()
+                + " C, threshold=" + threshold.getThreshold() + " C";
+    }
+
+    private String buildConditionAlertMessage(Weather weather, WeatherThreshold threshold) {
+        if (threshold.getAlertMessage() != null && !threshold.getAlertMessage().isBlank()) {
+            return threshold.getAlertMessage();
+        }
+        return "Weather condition threshold breached for " + weather.getCity()
+                + ": condition=" + weather.getWeatherCondition();
+    }
+
+    private void saveAlert(String city, String alertType, String alertMessage, String observedValue, String thresholdValue) {
+        WeatherAlert alert = new WeatherAlert();
+        alert.setCity(city);
+        alert.setAlertType(alertType);
+        alert.setAlertMessage(alertMessage);
+        alert.setObservedValue(observedValue);
+        alert.setThresholdValue(thresholdValue);
+        alert.setCreatedAt(LocalDateTime.now());
+        weatherAlertRepository.save(alert);
+    }
+
+    private DailyWeatherSummaryEntity upsertDailySummary(String city, LocalDate summaryDate) {
+        LocalDateTime start = LocalDateTime.of(summaryDate, LocalTime.MIN);
+        LocalDateTime end = LocalDateTime.of(summaryDate, LocalTime.MAX);
+        List<Weather> weatherData = weatherRepository.findByCityAndTimestampBetween(city, start, end);
+        WeatherSummary summary = calculateSummary(weatherData);
+
+        Map<String, Long> conditionCount = weatherData.stream()
+                .collect(Collectors.groupingBy(Weather::getWeatherCondition, Collectors.counting()));
+        String dominantCondition = summary.getDominantWeatherCondition();
+        long dominantCount = conditionCount.getOrDefault(dominantCondition, 0L);
+        String dominantReason = "Most frequent condition based on " + dominantCount
+                + " of " + weatherData.size() + " samples";
+
+        DailyWeatherSummaryEntity entity = dailyWeatherSummaryRepository
+                .findByCityAndSummaryDate(city, summaryDate)
+                .orElseGet(DailyWeatherSummaryEntity::new);
+        entity.setCity(city);
+        entity.setSummaryDate(summaryDate);
+        entity.setAverageTemperature(summary.getAverageTemperature());
+        entity.setMaxTemperature(summary.getMaxTemperature());
+        entity.setMinTemperature(summary.getMinTemperature());
+        entity.setDominantWeatherCondition(summary.getDominantWeatherCondition());
+        entity.setDominantWeatherConditionReason(dominantReason);
+        entity.setAverageHumidity(summary.getAverageHumidity());
+        entity.setAverageWindSpeed(summary.getAverageWindSpeed());
+        entity.setTotalSamples(weatherData.size());
+        entity.setUpdatedAt(LocalDateTime.now());
+        return dailyWeatherSummaryRepository.save(entity);
     }
 
     private JSONObject getApiResponse(String url, String city) {
@@ -261,7 +445,6 @@ public class WeatherService {
         return UriComponentsBuilder.fromHttpUrl(CURRENT_WEATHER_URL)
                 .queryParam("q", city)
                 .queryParam("appid", apiKey)
-                .queryParam("units", "metric")
                 .encode(StandardCharsets.UTF_8)
                 .toUriString();
     }
@@ -270,7 +453,6 @@ public class WeatherService {
         return UriComponentsBuilder.fromHttpUrl(FORECAST_URL)
                 .queryParam("q", city)
                 .queryParam("appid", apiKey)
-                .queryParam("units", "metric")
                 .encode(StandardCharsets.UTF_8)
                 .toUriString();
     }
@@ -283,8 +465,19 @@ public class WeatherService {
         return normalized.substring(0, 1).toUpperCase(Locale.ROOT) + normalized.substring(1);
     }
 
+    private double kelvinToCelsius(double kelvin) {
+        return kelvin - 273.15;
+    }
+
     private double roundToTwoDecimalPlaces(double value) {
         BigDecimal decimal = BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_UP);
         return decimal.doubleValue();
+    }
+
+    private boolean isStale(LocalDateTime timestamp) {
+        if (timestamp == null) {
+            return true;
+        }
+        return timestamp.isBefore(LocalDateTime.now().minusMinutes(weatherDataStaleMinutes));
     }
 }

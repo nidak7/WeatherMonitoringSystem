@@ -392,6 +392,31 @@ h1 {
   font-size: 0.84rem;
 }
 
+.alerts-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.alert-item {
+  border: 1px solid rgba(219, 149, 174, 0.35);
+  background: rgba(255, 244, 248, 0.78);
+  border-radius: 12px;
+  padding: 0.56rem 0.65rem;
+}
+
+.alert-title {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #824166;
+}
+
+.alert-meta {
+  margin: 0.22rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .error-text {
   margin: 0.83rem 0 0;
   padding: 0.66rem 0.8rem;

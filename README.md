@@ -1,109 +1,139 @@
 # WeatherPulse
 
-A simple weather monitoring project I built with Spring Boot + React.
-It shows live weather for any city, keeps weather history in a database, and has a responsive frontend for quick city checks.
+WeatherPulse is a full-stack weather monitoring system built with Spring Boot and React.
+It continuously pulls live weather updates, stores records, computes daily rollups, and exposes alerts + summaries through APIs and UI.
 
-## Live Project
+## Live frontend
 
-- Frontend (GitHub Pages): **https://nidak7.github.io/WeatherMonitoringSystem/**
+- https://nidak7.github.io/WeatherMonitoringSystem/
 
-## What this app does
+Important: this frontend now uses **backend-only** weather data.  
+Set `VITE_API_BASE_URL` to your running backend URL before deploying frontend.
 
-- Search weather by city
-- View current weather (temperature, feels like, humidity, wind speed)
-- View short-term forecast cards
-- Click forecast cards to inspect details
-- Auto-refresh weather updates
-- Store weather entries through backend APIs
-- Fall back to Open-Meteo in frontend when backend is not reachable
+## Assignment 2 mapping (Weather Monitoring)
+
+This project covers the expected requirements from the second assignment:
+
+1. Real-time weather retrieval for Indian metros  
+Cities: `Delhi, Mumbai, Chennai, Bangalore, Kolkata, Hyderabad`  
+Implemented via scheduled polling (`weather.polling.fixed-rate-ms`, default 5 minutes).
+
+2. Temperature conversion from Kelvin to Celsius  
+OpenWeather responses are consumed in Kelvin and converted in backend service.
+
+3. Daily rollups and aggregates  
+For each city/day, backend stores:
+- average temperature
+- max temperature
+- min temperature
+- dominant weather condition
+- dominant condition reason
+- average humidity
+- average wind speed
+- sample count
+
+4. Alerting thresholds  
+Supports configurable thresholds for:
+- temperature
+- weather condition  
+Alerts are triggered after consecutive breaches and persisted.
+
+5. Visualizations  
+Frontend shows:
+- current weather
+- forecast
+- daily summary rollup
+- recent alerts
 
 ## Tech stack
 
-- Java 17
-- Spring Boot 3
-- Spring Data JPA
-- H2 (default local DB), MySQL supported via env vars
-- React + Vite
-- GitHub Actions + GitHub Pages (frontend deployment)
-- Docker + Render blueprint (backend deployment template)
+- Backend: Java 17, Spring Boot 3, Spring Data JPA
+- Database: H2 (default), MySQL supported via env vars
+- Frontend: React + Vite
+- Deployment: GitHub Pages for frontend, Docker/Render blueprint for backend
 
-## Project structure
+## Backend setup
 
-```text
-weather/
-  src/                      # Spring Boot backend
-  frontend/                 # React frontend
-  .github/workflows/        # CI/CD workflow for GitHub Pages
-  Dockerfile                # Backend container build
-  render.yaml               # Backend deployment blueprint
-```
+1. Configure env vars:
+- `OPENWEATHER_API_KEY` (required)
+- `PORT` (optional, default `8080`)
+- `APP_CORS_ALLOWED_ORIGINS` (for frontend origins)
 
-## Local run
-
-### Backend
-
-1. Set `OPENWEATHER_API_KEY`
-2. Run:
+2. Run backend:
 
 ```bash
 ./mvnw spring-boot:run
 ```
 
-Backend starts at `http://localhost:8080`.
+Backend base URL: `http://localhost:8080`
 
-### Frontend
+## Frontend setup
+
+1. Move to frontend:
 
 ```bash
 cd frontend
+```
+
+2. Configure API base URL:
+
+```bash
+cp .env.example .env
+```
+
+Set in `.env`:
+
+```env
+VITE_API_BASE_URL=http://localhost:8080
+```
+
+3. Run:
+
+```bash
 npm install
 npm run dev
 ```
 
-Frontend starts at `http://localhost:5173`.
-
-## Environment variables
-
-### Backend
-
-- `OPENWEATHER_API_KEY` (required for OpenWeather calls)
-- `PORT` (default: `8080`)
-- `APP_CORS_ALLOWED_ORIGINS`
-- `SPRING_DATASOURCE_URL`
-- `SPRING_DATASOURCE_USERNAME`
-- `SPRING_DATASOURCE_PASSWORD`
-- `SPRING_DATASOURCE_DRIVER_CLASS_NAME`
-
-### Frontend
-
-- `VITE_API_BASE_URL` (default: `http://localhost:8080`)
-
-## API endpoints
+## Key backend endpoints
 
 - `GET /api/weather/current/{city}`
+- `GET /api/weather/current/tracked`
 - `GET /api/weather/forecast/{city}`
-- `GET /api/weather/fetch/{city}`
+- `GET /api/weather/daily-summary/{city}`
+- `GET /api/weather/daily-summary/tracked`
+- `GET /api/weather/alerts`
+- `GET /api/weather/alerts?city={city}`
 - `GET /api/weather/history/{city}?date=yyyy-MM-dd`
 - `GET /api/weather/summary/{city}?date=yyyy-MM-dd`
 - `GET /api/weather/trends/{city}`
-- `GET /api/weather/cities`
 - `POST /api/weather/threshold`
-- `POST /api/weather/check`
-- `POST /api/weather/simulate/{city}`
 
-## How to check full project flow
+## Example threshold payloads
 
-1. Open the live link: `https://nidak7.github.io/WeatherMonitoringSystem/`
-2. Search a city name (for example: `Bangalore`, `Pune`, `London`).
-3. Check top-right source label:
-   - `Backend API` means hosted backend responded.
-   - `Open-Meteo fallback` means frontend switched to direct weather source.
-4. Click different forecast cards to verify interactive detail updates.
-5. Toggle `C/F` and verify temperature conversion.
-6. If you want to test backend APIs directly, run backend locally and hit:
-   - `http://localhost:8080/api/weather/current/Bangalore`
-   - `http://localhost:8080/api/weather/forecast/Bangalore`
+Temperature threshold:
+
+```json
+{
+  "condition": "temperature",
+  "threshold": 35,
+  "consecutiveUpdates": 2,
+  "alertMessage": "High temperature breach"
+}
+```
+
+Weather condition threshold:
+
+```json
+{
+  "condition": "weatherCondition",
+  "weatherCondition": "Rain",
+  "consecutiveUpdates": 2,
+  "alertMessage": "Continuous rain detected"
+}
+```
 
 ## Notes
 
-- Frontend deployment is automatic from `master` through `.github/workflows/deploy-pages.yml`.
-- `render.yaml` and `Dockerfile` are included for backend hosting on Render or any Docker host.
+- Backend performs startup warm-up and then periodic polling.
+- Daily summaries and alerts are persisted for analysis.
+- Frontend is intentionally backend-driven for evaluator checks.

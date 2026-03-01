@@ -3,28 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
 const defaultCities = ["Bangalore", "Mumbai", "Delhi", "Chennai", "Hyderabad", "Kolkata"];
 
-const weatherCodeMap = {
-  0: "Clear",
-  1: "Mostly clear",
-  2: "Partly cloudy",
-  3: "Cloudy",
-  45: "Fog",
-  48: "Fog",
-  51: "Drizzle",
-  53: "Drizzle",
-  55: "Drizzle",
-  61: "Rain",
-  63: "Rain",
-  65: "Heavy rain",
-  71: "Snow",
-  73: "Snow",
-  75: "Snow",
-  80: "Rain showers",
-  81: "Rain showers",
-  82: "Heavy showers",
-  95: "Thunderstorm"
-};
-
 function toDisplayTemp(value, unit) {
   if (value === null || value === undefined) return "--";
   if (unit === "F") {
@@ -50,6 +28,16 @@ function formatTime(value) {
   }).format(new Date(value));
 }
 
+function formatDateOnly(value) {
+  if (!value) return "N/A";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium"
+  }).format(new Date(value));
+}
+
 async function fetchJson(url) {
   const response = await fetch(url);
   const payload = await response.json().catch(() => ({}));
@@ -59,68 +47,16 @@ async function fetchJson(url) {
   return payload;
 }
 
-async function fetchFromOpenMeteo(city) {
-  const geocodeUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-    city
-  )}&count=1&language=en&format=json`;
-  const geoResponse = await fetch(geocodeUrl);
-  const geoJson = await geoResponse.json();
-
-  if (!geoJson?.results?.length) {
-    throw new Error(`City not found: ${city}`);
-  }
-
-  const place = geoJson.results[0];
-  const forecastUrl =
-    `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}` +
-    `&longitude=${place.longitude}` +
-    "&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code" +
-    "&hourly=temperature_2m,weather_code,apparent_temperature,relative_humidity_2m,wind_speed_10m" +
-    "&forecast_days=2&timezone=auto";
-
-  const weatherResponse = await fetch(forecastUrl);
-  const weatherJson = await weatherResponse.json();
-
-  const current = weatherJson.current;
-  const hourly = weatherJson.hourly;
-  const forecast = [];
-
-  for (let i = 0; i < hourly.time.length && forecast.length < 12; i += 3) {
-    const weatherCode = hourly.weather_code[i];
-    forecast.push({
-      city: place.name,
-      temperature: hourly.temperature_2m[i],
-      feelsLike: hourly.apparent_temperature[i],
-      humidity: hourly.relative_humidity_2m[i],
-      windSpeed: hourly.wind_speed_10m[i],
-      weatherCondition: weatherCodeMap[weatherCode] || "Weather update",
-      timestamp: hourly.time[i]
-    });
-  }
-
-  return {
-    currentWeather: {
-      city: place.name,
-      temperature: current.temperature_2m,
-      feelsLike: current.apparent_temperature,
-      humidity: current.relative_humidity_2m,
-      windSpeed: current.wind_speed_10m,
-      weatherCondition: weatherCodeMap[current.weather_code] || "Weather update",
-      timestamp: current.time
-    },
-    forecast
-  };
-}
-
 function App() {
   const [cityInput, setCityInput] = useState("Bangalore");
   const [activeCity, setActiveCity] = useState("Bangalore");
   const [cities, setCities] = useState(defaultCities);
   const [currentWeather, setCurrentWeather] = useState(null);
   const [forecast, setForecast] = useState([]);
+  const [dailySummary, setDailySummary] = useState(null);
+  const [alerts, setAlerts] = useState([]);
   const [selectedForecastIndex, setSelectedForecastIndex] = useState(0);
   const [unit, setUnit] = useState("C");
-  const [source, setSource] = useState("Backend API");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -133,23 +69,23 @@ function App() {
     setSelectedForecastIndex(0);
 
     try {
-      const [currentPayload, forecastPayload] = await Promise.all([
+      const [currentPayload, forecastPayload, summaryPayload, alertsPayload] = await Promise.all([
         fetchJson(`${API_BASE_URL}/api/weather/current/${encodeURIComponent(normalizedCity)}`),
-        fetchJson(`${API_BASE_URL}/api/weather/forecast/${encodeURIComponent(normalizedCity)}`)
+        fetchJson(`${API_BASE_URL}/api/weather/forecast/${encodeURIComponent(normalizedCity)}`),
+        fetchJson(`${API_BASE_URL}/api/weather/daily-summary/${encodeURIComponent(normalizedCity)}`),
+        fetchJson(`${API_BASE_URL}/api/weather/alerts?city=${encodeURIComponent(normalizedCity)}`)
       ]);
 
       setCurrentWeather(currentPayload.data || null);
       setForecast(Array.isArray(forecastPayload.data) ? forecastPayload.data.slice(0, 12) : []);
-      setSource("Backend API");
+      setDailySummary(summaryPayload.data || null);
+      setAlerts(Array.isArray(alertsPayload.data) ? alertsPayload.data.slice(0, 5) : []);
     } catch (backendError) {
-      try {
-        const fallbackData = await fetchFromOpenMeteo(normalizedCity);
-        setCurrentWeather(fallbackData.currentWeather);
-        setForecast(fallbackData.forecast);
-        setSource("Open-Meteo fallback");
-      } catch (fallbackError) {
-        setError(fallbackError.message || backendError.message);
-      }
+      setCurrentWeather(null);
+      setForecast([]);
+      setDailySummary(null);
+      setAlerts([]);
+      setError(backendError.message || "Backend is unavailable.");
     } finally {
       setLoading(false);
     }
@@ -201,7 +137,7 @@ function App() {
           <p className="subtext">Current conditions and short-term forecast for your city.</p>
         </div>
         <div className="header-controls">
-          <p className="source-pill">{source}</p>
+          <p className="source-pill">Backend API</p>
           <div className="unit-toggle" role="group" aria-label="Temperature unit">
             <button
               type="button"
@@ -312,6 +248,48 @@ function App() {
               </div>
             ) : (
               <p className="empty-msg">{loading ? "Loading forecast..." : "No forecast data yet."}</p>
+            )}
+          </article>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Daily Summary And Alerts</h2>
+            <p>Rollups and threshold monitoring from backend</p>
+          </div>
+
+          <article className="detail-card">
+            <h3>Today summary ({dailySummary?.city || activeCity})</h3>
+            {dailySummary ? (
+              <div className="detail-grid">
+                <p>Date: <strong>{formatDateOnly(dailySummary.summaryDate)}</strong></p>
+                <p>Avg temp: <strong>{toDisplayTemp(dailySummary.averageTemperature, unit)} {unit}</strong></p>
+                <p>Max temp: <strong>{toDisplayTemp(dailySummary.maxTemperature, unit)} {unit}</strong></p>
+                <p>Min temp: <strong>{toDisplayTemp(dailySummary.minTemperature, unit)} {unit}</strong></p>
+                <p>Dominant: <strong>{dailySummary.dominantWeatherCondition}</strong></p>
+                <p>Samples: <strong>{dailySummary.totalSamples}</strong></p>
+              </div>
+            ) : (
+              <p className="empty-msg">{loading ? "Loading daily summary..." : "No summary data yet."}</p>
+            )}
+          </article>
+
+          <article className="detail-card">
+            <h3>Recent alerts</h3>
+            {alerts.length > 0 ? (
+              <div className="alerts-list">
+                {alerts.map((alert) => (
+                  <div className="alert-item" key={`${alert.id}-${alert.createdAt}`}>
+                    <p className="alert-title">{alert.alertMessage}</p>
+                    <p className="alert-meta">
+                      {alert.alertType} | observed: {alert.observedValue} | threshold: {alert.thresholdValue}
+                    </p>
+                    <p className="alert-meta">{formatDateTime(alert.createdAt)}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="empty-msg">No alerts triggered for this city.</p>
             )}
           </article>
         </section>

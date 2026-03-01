@@ -75,6 +75,6 @@ Frontend URL: `http://localhost:5173`
 
 ## Config you can tweak
 
-- `WEATHER_TRACKED_CITIES`
-- `WEATHER_POLLING_FIXED_RATE_MS`
-- `WEATHER_DATA_STALE_MINUTES`
+- `WEATHER_TRACKED_CITIES`: Comma-separated city list the backend keeps updating automatically.
+- `WEATHER_POLLING_FIXED_RATE_MS`: How often the backend fetches new data for tracked cities (in milliseconds).
+- `WEATHER_DATA_STALE_MINUTES`: After this many minutes, saved data is treated as old and refreshed on the next request.

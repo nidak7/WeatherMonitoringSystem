@@ -1,30 +1,31 @@
 # WeatherPulse
 
-This is my weather monitoring project built with Spring Boot + React.
-I wanted it to feel like a small real product, not just an API demo.
+This is my personal weather monitoring project.
+I built it to practice a full flow: fetch live weather, store it, generate daily summaries, and show it in a clean dashboard.
 
-Live frontend:
+Live project:
 - https://nidak7.github.io/WeatherMonitoringSystem/
 
 ## What it does
 
-- Pulls weather updates for Indian metro cities on a fixed interval
-- Stores weather records in the database
-- Builds daily rollups (avg/max/min temp, dominant condition, humidity, wind)
-- Tracks threshold alerts (temperature or weather condition with consecutive breaches)
-- Shows current weather, forecast, daily summary, and recent alerts in UI
+- Current weather + short forecast for searched cities
+- Daily rollup (avg/max/min temp, dominant condition, humidity, wind)
+- Alerts for heat, wind, snow, dust, etc.
+- Auto-refresh every 2 minutes
+
+The backend uses OpenWeather as the main source.
+If backend APIs are not reachable, the frontend can still show data using Open-Meteo fallback.
 
 ## Stack
 
-- Java 17
-- Spring Boot 3
+- Spring Boot (Java 17)
 - Spring Data JPA
-- H2 (default), MySQL supported
+- H2 by default (MySQL can be configured)
 - React + Vite
 
 ## Run locally
 
-### 1. Backend
+### Backend
 
 Set env vars:
 
@@ -34,7 +35,7 @@ PORT=8080
 APP_CORS_ALLOWED_ORIGINS=http://localhost:5173
 ```
 
-Run:
+Start server:
 
 ```bash
 ./mvnw spring-boot:run
@@ -42,20 +43,20 @@ Run:
 
 Backend URL: `http://localhost:8080`
 
-### 2. Frontend
+### Frontend
 
 ```bash
 cd frontend
 npm install
 ```
 
-Create `.env`:
+Create `frontend/.env`:
 
 ```env
 VITE_API_BASE_URL=http://localhost:8080
 ```
 
-Run:
+Start UI:
 
 ```bash
 npm run dev
@@ -63,52 +64,17 @@ npm run dev
 
 Frontend URL: `http://localhost:5173`
 
-## Useful APIs
-
-- `GET /api/weather/current/{city}`
-- `GET /api/weather/current/tracked`
-- `GET /api/weather/forecast/{city}`
-- `GET /api/weather/daily-summary/{city}`
-- `GET /api/weather/daily-summary/tracked`
-- `GET /api/weather/alerts`
-- `GET /api/weather/alerts?city={city}`
-- `POST /api/weather/threshold`
-
-## Threshold payload examples
-
-Temperature:
-
-```json
-{
-  "condition": "temperature",
-  "threshold": 35,
-  "consecutiveUpdates": 2,
-  "alertMessage": "High temperature breach"
-}
-```
-
-Weather condition:
-
-```json
-{
-  "condition": "weatherCondition",
-  "weatherCondition": "Rain",
-  "consecutiveUpdates": 2,
-  "alertMessage": "Continuous rain detected"
-}
-```
-
 ## Quick flow check
 
-1. Start backend.
-2. Open frontend.
-3. Search a city like `Bangalore` or `Hyderabad`.
-4. Confirm current weather and forecast load.
-5. Check daily summary + alerts section.
-6. Hit APIs directly in browser/Postman for verification.
+1. Start backend, then frontend.
+2. Open the dashboard and search any city.
+3. Check that current weather, forecast cards, and risk badge are visible.
+4. Scroll to `Daily Summary And Alerts` and confirm values are filled.
+5. If weather is hot/severe, alerts should show in plain words (not system codes).
+6. Wait 2 minutes and verify the update time changes.
 
-## Notes
+## Config you can tweak
 
-- Polling interval is configurable with `WEATHER_POLLING_FIXED_RATE_MS`.
-- Tracked cities are configurable with `WEATHER_TRACKED_CITIES`.
-- Data freshness window is configurable with `WEATHER_DATA_STALE_MINUTES`.
+- `WEATHER_TRACKED_CITIES`
+- `WEATHER_POLLING_FIXED_RATE_MS`
+- `WEATHER_DATA_STALE_MINUTES`

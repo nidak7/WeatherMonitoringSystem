@@ -201,7 +201,15 @@ public class WeatherService {
             forecast.setWeatherCondition(weatherCondition);
             forecast.setWeatherDescription(weatherDescription);
             forecast.setWeatherCode(weatherCode);
-            forecast.setWeatherRisk(determineWeatherRisk(weatherCode, weatherCondition, weatherDescription, windSpeed));
+            forecast.setWeatherRisk(
+                    determineWeatherRisk(
+                            weatherCode,
+                            weatherCondition,
+                            weatherDescription,
+                            windSpeed,
+                            forecast.getTemperature()
+                    )
+            );
             forecast.setTimestamp(LocalDateTime.parse(forecastData.getString("dt_txt"), FORECAST_TIMESTAMP_FORMATTER));
             forecastList.add(forecast);
         }
@@ -300,7 +308,15 @@ public class WeatherService {
         currentWeather.setWeatherCondition(weatherCondition);
         currentWeather.setWeatherDescription(weatherDescription);
         currentWeather.setWeatherCode(weatherCode);
-        currentWeather.setWeatherRisk(determineWeatherRisk(weatherCode, weatherCondition, weatherDescription, windSpeed));
+        currentWeather.setWeatherRisk(
+                determineWeatherRisk(
+                        weatherCode,
+                        weatherCondition,
+                        weatherDescription,
+                        windSpeed,
+                        currentWeather.getTemperature()
+                )
+        );
         currentWeather.setHumidity(main.optDouble("humidity", 0));
         currentWeather.setWindSpeed(windSpeed);
         currentWeather.setTimestamp(LocalDateTime.now().withSecond(0).withNano(0));
@@ -499,12 +515,18 @@ public class WeatherService {
         return timestamp.isBefore(LocalDateTime.now().minusMinutes(weatherDataStaleMinutes));
     }
 
-    private String determineWeatherRisk(int weatherCode, String weatherCondition, String weatherDescription, double windSpeed) {
+    private String determineWeatherRisk(
+            int weatherCode,
+            String weatherCondition,
+            String weatherDescription,
+            double windSpeed,
+            double temperature
+    ) {
         String condition = weatherCondition == null ? "" : weatherCondition.toLowerCase(Locale.ROOT);
         String description = weatherDescription == null ? "" : weatherDescription.toLowerCase(Locale.ROOT);
 
         if (weatherCode >= 200 && weatherCode < 300) {
-            if (windSpeed >= 20) {
+            if (windSpeed >= 28) {
                 return "Cyclone/Severe Storm Risk";
             }
             return "Thunderstorm Risk";
@@ -530,10 +552,10 @@ public class WeatherService {
             return "Cyclone Risk";
         }
 
-        if (windSpeed >= 24) {
+        if (windSpeed >= 28) {
             return "Cyclone-like Wind Risk";
         }
-        if (windSpeed >= 15) {
+        if (windSpeed >= 17) {
             return "Strong Wind Risk";
         }
 
@@ -542,7 +564,8 @@ public class WeatherService {
         }
 
         if ((condition.contains("clear") || description.contains("clear") || description.contains("sun"))
-                && weatherCode == 800) {
+                && weatherCode == 800
+                && temperature >= 35) {
             return "Sunny/Heat Risk";
         }
 
@@ -556,17 +579,17 @@ public class WeatherService {
         if (isSunnyAndHot(weather)) {
             systemAlerts.add(buildSystemAlert(
                     city,
-                    "system.heat.sunny",
+                    "Heat Advisory",
                     "Sunny and hot conditions detected",
                     weather.getTemperature() + " C",
-                    ">= 34 C with clear sky"
+                    ">= 35 C with clear sky"
             ));
         }
 
         if (weather.getTemperature() >= 40) {
             systemAlerts.add(buildSystemAlert(
                     city,
-                    "system.heat.extreme",
+                    "Extreme Heat Warning",
                     "Extreme heat warning",
                     weather.getTemperature() + " C",
                     ">= 40 C"
@@ -576,7 +599,7 @@ public class WeatherService {
         if (weather.getWeatherRisk() != null && weather.getWeatherRisk().toLowerCase(Locale.ROOT).contains("cyclone")) {
             systemAlerts.add(buildSystemAlert(
                     city,
-                    "system.cyclone",
+                    "Wind Risk Advisory",
                     "Cyclone-like weather pattern detected",
                     weather.getWindSpeed() + " m/s",
                     "High risk wind profile"
@@ -586,7 +609,7 @@ public class WeatherService {
         if (weather.getWeatherRisk() != null && weather.getWeatherRisk().toLowerCase(Locale.ROOT).contains("sandstorm")) {
             systemAlerts.add(buildSystemAlert(
                     city,
-                    "system.sandstorm",
+                    "Dust Risk Advisory",
                     "Sandstorm or dust-storm risk detected",
                     weather.getWeatherDescription(),
                     "Airborne dust/sand pattern"
@@ -596,7 +619,7 @@ public class WeatherService {
         if (weather.getWeatherRisk() != null && weather.getWeatherRisk().toLowerCase(Locale.ROOT).contains("snow")) {
             systemAlerts.add(buildSystemAlert(
                     city,
-                    "system.snow",
+                    "Snow Risk Advisory",
                     "Snowfall risk detected",
                     weather.getWeatherDescription(),
                     "Snow weather code range"
@@ -643,6 +666,6 @@ public class WeatherService {
         String condition = weather.getWeatherCondition() == null ? "" : weather.getWeatherCondition().toLowerCase(Locale.ROOT);
         String description = weather.getWeatherDescription() == null ? "" : weather.getWeatherDescription().toLowerCase(Locale.ROOT);
         boolean sunny = condition.contains("clear") || description.contains("clear") || description.contains("sun");
-        return sunny && weather.getTemperature() >= 34;
+        return sunny && weather.getTemperature() >= 35;
     }
 }

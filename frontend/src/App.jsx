@@ -66,10 +66,10 @@ function deriveRisk(condition, description, windSpeed, temperature) {
   if (text.includes("sand") || text.includes("dust")) return "Sandstorm/Dust Risk";
   if (text.includes("snow")) return "Snow Risk";
   if (text.includes("thunder")) return "Thunderstorm Risk";
-  if ((condition || "").toLowerCase().includes("clear") && (temperature || 0) >= 34) return "Sunny/Heat Risk";
-  if ((temperature || 0) >= 40) return "Extreme Heat Risk";
-  if ((windSpeed || 0) >= 20) return "Cyclone-like Wind Risk";
-  if ((windSpeed || 0) >= 14) return "Strong Wind Risk";
+  if ((condition || "").toLowerCase().includes("clear") && (temperature || 0) >= 35) return "Sunny/Heat Risk";
+  if ((temperature || 0) >= 42) return "Extreme Heat Risk";
+  if ((windSpeed || 0) >= 28) return "Cyclone-like Wind Risk";
+  if ((windSpeed || 0) >= 17) return "Strong Wind Risk";
   if (text.includes("rain")) return "Rain Risk";
   return "Low Risk";
 }
@@ -88,7 +88,20 @@ function isSunnyAndHot(weather) {
   if (!weather) return false;
   const condition = (weather.weatherCondition || "").toLowerCase();
   const description = (weather.weatherDescription || "").toLowerCase();
-  return (condition.includes("clear") || description.includes("sun")) && Number(weather.temperature || 0) >= 34;
+  return (condition.includes("clear") || description.includes("sun")) && Number(weather.temperature || 0) >= 35;
+}
+
+function toReadableAlertType(alertType) {
+  if (!alertType) return "";
+  const normalized = alertType.toLowerCase();
+  if (normalized.startsWith("system.")) {
+    if (normalized.includes("heat")) return "Heat Advisory";
+    if (normalized.includes("cyclone") || normalized.includes("wind")) return "Wind Risk Advisory";
+    if (normalized.includes("sandstorm") || normalized.includes("dust")) return "Dust Risk Advisory";
+    if (normalized.includes("snow")) return "Snow Risk Advisory";
+    return "Weather Advisory";
+  }
+  return alertType;
 }
 
 function buildClientSummary(city, currentWeather, forecast) {
@@ -137,10 +150,10 @@ function buildClientAlerts(currentWeather, forecast) {
     alerts.push({
       id: `heat-${now}`,
       createdAt: now,
-      alertType: "system.heat.sunny",
+      alertType: "Heat Advisory",
       alertMessage: "Sunny and hot conditions detected",
       observedValue: `${currentWeather.temperature} C`,
-      thresholdValue: ">= 34 C with clear sky"
+      thresholdValue: "Clear sky and high daytime heat"
     });
   }
 
@@ -154,10 +167,10 @@ function buildClientAlerts(currentWeather, forecast) {
     alerts.push({
       id: `risk-${now}`,
       createdAt: now,
-      alertType: "system.risk.live",
+      alertType: "Live Risk Advisory",
       alertMessage: `${liveRisk} detected`,
       observedValue: currentWeather.weatherDescription || currentWeather.weatherCondition,
-      thresholdValue: "Severe condition detected"
+      thresholdValue: "Severe condition pattern"
     });
   }
 
@@ -176,10 +189,10 @@ function buildClientAlerts(currentWeather, forecast) {
     alerts.push({
       id: `forecast-${severeForecast.timestamp}`,
       createdAt: severeForecast.timestamp,
-      alertType: "system.risk.forecast",
+      alertType: "Forecast Advisory",
       alertMessage: `${futureRisk} likely in forecast`,
       observedValue: severeForecast.weatherDescription || severeForecast.weatherCondition,
-      thresholdValue: formatTime(severeForecast.timestamp)
+      thresholdValue: `Expected around ${formatTime(severeForecast.timestamp)}`
     });
   }
 
@@ -231,7 +244,7 @@ async function fetchPublicWeather(city) {
     `&longitude=${place.longitude}` +
     "&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code" +
     "&hourly=temperature_2m,weather_code,apparent_temperature,relative_humidity_2m,wind_speed_10m" +
-    "&forecast_days=2&timezone=auto";
+    "&forecast_days=2&timezone=auto&wind_speed_unit=ms";
   const weatherResponse = await fetch(weatherUrl);
   const weatherJson = await weatherResponse.json();
   const current = weatherJson.current;
@@ -248,7 +261,7 @@ async function fetchPublicWeather(city) {
       windSpeed: hourly.wind_speed_10m[i],
       weatherCondition: condition,
       weatherDescription: condition,
-      weatherRisk: deriveRisk(condition, condition, hourly.wind_speed_10m[i]),
+      weatherRisk: deriveRisk(condition, condition, hourly.wind_speed_10m[i], hourly.temperature_2m[i]),
       timestamp: hourly.time[i]
     });
   }
@@ -263,7 +276,7 @@ async function fetchPublicWeather(city) {
       windSpeed: current.wind_speed_10m,
       weatherCondition: currentCondition,
       weatherDescription: currentCondition,
-      weatherRisk: deriveRisk(currentCondition, currentCondition, current.wind_speed_10m),
+      weatherRisk: deriveRisk(currentCondition, currentCondition, current.wind_speed_10m, current.temperature_2m),
       timestamp: current.time
     },
     forecast
@@ -610,7 +623,7 @@ function App() {
                   ? "Loading daily summary..."
                   : analyticsAvailable
                     ? "No summary data yet."
-                    : "Detailed summary appears when the analytics endpoint is active."}
+                    : "Summary appears after fresh weather samples are collected."}
               </p>
             )}
           </article>
@@ -622,16 +635,16 @@ function App() {
                 {alerts.map((alert) => (
                   <div className="alert-item" key={`${alert.id}-${alert.createdAt}`}>
                     <p className="alert-title">{alert.alertMessage}</p>
-                    <p className="alert-meta">
-                      {alert.alertType} | observed: {alert.observedValue} | threshold: {alert.thresholdValue}
-                    </p>
+                    {alert.alertType ? <p className="alert-meta">{toReadableAlertType(alert.alertType)}</p> : null}
+                    <p className="alert-meta">Observed: {alert.observedValue}</p>
+                    <p className="alert-meta">{alert.thresholdValue}</p>
                     <p className="alert-meta">{formatDateTime(alert.createdAt)}</p>
                   </div>
                 ))}
               </div>
             ) : (
               <p className="empty-msg">
-                {analyticsAvailable ? "No alerts triggered for this city." : "Alert history appears in full server mode."}
+                {analyticsAvailable ? "No alerts triggered for this city." : "Alerts appear once risk conditions are detected."}
               </p>
             )}
           </article>

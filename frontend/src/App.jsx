@@ -2,6 +2,27 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
 const defaultCities = ["Bangalore", "Mumbai", "Delhi", "Chennai", "Hyderabad", "Kolkata"];
+const weatherCodeMap = {
+  0: "Clear",
+  1: "Mostly clear",
+  2: "Partly cloudy",
+  3: "Cloudy",
+  45: "Fog",
+  48: "Fog",
+  51: "Drizzle",
+  53: "Drizzle",
+  55: "Drizzle",
+  61: "Rain",
+  63: "Rain",
+  65: "Heavy rain",
+  71: "Snow",
+  73: "Snow",
+  75: "Snow",
+  80: "Rain showers",
+  81: "Rain showers",
+  82: "Heavy showers",
+  95: "Thunderstorm"
+};
 
 function toDisplayTemp(value, unit) {
   if (value === null || value === undefined) return "--";
@@ -47,6 +68,56 @@ async function fetchJson(url) {
   return payload;
 }
 
+async function fetchPublicWeather(city) {
+  const geocodeUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+    city
+  )}&count=1&language=en&format=json`;
+  const geocodeResponse = await fetch(geocodeUrl);
+  const geocodeJson = await geocodeResponse.json();
+
+  if (!geocodeJson?.results?.length) {
+    throw new Error(`City not found: ${city}`);
+  }
+
+  const place = geocodeJson.results[0];
+  const weatherUrl =
+    `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}` +
+    `&longitude=${place.longitude}` +
+    "&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code" +
+    "&hourly=temperature_2m,weather_code,apparent_temperature,relative_humidity_2m,wind_speed_10m" +
+    "&forecast_days=2&timezone=auto";
+  const weatherResponse = await fetch(weatherUrl);
+  const weatherJson = await weatherResponse.json();
+  const current = weatherJson.current;
+  const hourly = weatherJson.hourly;
+
+  const forecast = [];
+  for (let i = 0; i < hourly.time.length && forecast.length < 12; i += 3) {
+    forecast.push({
+      city: place.name,
+      temperature: hourly.temperature_2m[i],
+      feelsLike: hourly.apparent_temperature[i],
+      humidity: hourly.relative_humidity_2m[i],
+      windSpeed: hourly.wind_speed_10m[i],
+      weatherCondition: weatherCodeMap[hourly.weather_code[i]] || "Weather update",
+      timestamp: hourly.time[i]
+    });
+  }
+
+  return {
+    currentWeather: {
+      city: place.name,
+      temperature: current.temperature_2m,
+      feelsLike: current.apparent_temperature,
+      humidity: current.relative_humidity_2m,
+      windSpeed: current.wind_speed_10m,
+      weatherCondition: weatherCodeMap[current.weather_code] || "Weather update",
+      timestamp: current.time
+    },
+    forecast
+  };
+}
+
 function App() {
   const [cityInput, setCityInput] = useState("Bangalore");
   const [activeCity, setActiveCity] = useState("Bangalore");
@@ -55,6 +126,7 @@ function App() {
   const [forecast, setForecast] = useState([]);
   const [dailySummary, setDailySummary] = useState(null);
   const [alerts, setAlerts] = useState([]);
+  const [analyticsAvailable, setAnalyticsAvailable] = useState(true);
   const [selectedForecastIndex, setSelectedForecastIndex] = useState(0);
   const [unit, setUnit] = useState("C");
   const [loading, setLoading] = useState(false);
@@ -80,12 +152,21 @@ function App() {
       setForecast(Array.isArray(forecastPayload.data) ? forecastPayload.data.slice(0, 12) : []);
       setDailySummary(summaryPayload.data || null);
       setAlerts(Array.isArray(alertsPayload.data) ? alertsPayload.data.slice(0, 5) : []);
+      setAnalyticsAvailable(true);
     } catch (backendError) {
-      setCurrentWeather(null);
-      setForecast([]);
+      setAnalyticsAvailable(false);
       setDailySummary(null);
       setAlerts([]);
-      setError(backendError.message || "Backend is unavailable.");
+      try {
+        const fallback = await fetchPublicWeather(normalizedCity);
+        setCurrentWeather(fallback.currentWeather);
+        setForecast(fallback.forecast);
+        setError("");
+      } catch (fallbackError) {
+        setCurrentWeather(null);
+        setForecast([]);
+        setError(fallbackError.message || backendError.message || "Unable to load weather data right now.");
+      }
     } finally {
       setLoading(false);
     }
@@ -137,7 +218,6 @@ function App() {
           <p className="subtext">Current conditions and short-term forecast for your city.</p>
         </div>
         <div className="header-controls">
-          <p className="source-pill">Backend API</p>
           <div className="unit-toggle" role="group" aria-label="Temperature unit">
             <button
               type="button"
@@ -255,7 +335,7 @@ function App() {
         <section className="panel">
           <div className="panel-head">
             <h2>Daily Summary And Alerts</h2>
-            <p>Rollups and threshold monitoring from backend</p>
+            <p>Daily rollups and threshold tracking</p>
           </div>
 
           <article className="detail-card">
@@ -270,7 +350,13 @@ function App() {
                 <p>Samples: <strong>{dailySummary.totalSamples}</strong></p>
               </div>
             ) : (
-              <p className="empty-msg">{loading ? "Loading daily summary..." : "No summary data yet."}</p>
+              <p className="empty-msg">
+                {loading
+                  ? "Loading daily summary..."
+                  : analyticsAvailable
+                    ? "No summary data yet."
+                    : "Detailed summary appears once the server analytics endpoint is connected."}
+              </p>
             )}
           </article>
 
@@ -289,7 +375,9 @@ function App() {
                 ))}
               </div>
             ) : (
-              <p className="empty-msg">No alerts triggered for this city.</p>
+              <p className="empty-msg">
+                {analyticsAvailable ? "No alerts triggered for this city." : "Alert history is available from server mode."}
+              </p>
             )}
           </article>
         </section>

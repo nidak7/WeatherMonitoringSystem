@@ -8,11 +8,11 @@
 		<version>3.3.4</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
-	<groupId>com.zeotap_assignment_2</groupId>
-	<artifactId>weather</artifactId>
+	<groupId>com.nidak.weatherpulse</groupId>
+	<artifactId>weatherpulse-api</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>weather</name>
-	<description>Weather project for Spring Boot</description>
+	<name>weatherpulse-api</name>
+	<description>Personal full-stack weather monitoring platform</description>
 	<url/>
 	<licenses>
 		<license/>
@@ -48,6 +48,11 @@
 		<dependency>
 			<groupId>com.mysql</groupId>
 			<artifactId>mysql-connector-j</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
 			<scope>runtime</scope>
 		</dependency>
 		<dependency>

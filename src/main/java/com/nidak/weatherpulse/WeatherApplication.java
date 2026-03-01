@@ -1,4 +1,4 @@
-package com.zeotap_assignment_2.weather;
+package com.nidak.weatherpulse;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

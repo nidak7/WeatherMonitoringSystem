@@ -1,4 +1,4 @@
-package com.zeotap_assignment_2.weather.entity;
+package com.nidak.weatherpulse.entity;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;

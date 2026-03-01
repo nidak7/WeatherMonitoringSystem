@@ -1,4 +1,4 @@
-package com.zeotap_assignment_2.weather;
+package com.nidak.weatherpulse;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;

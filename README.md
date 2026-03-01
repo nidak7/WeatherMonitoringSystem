@@ -1,184 +1,114 @@
-# Real-Time Data Processing System for Weather Monitoring with Rollups and Aggregates
+# WeatherPulse
 
-## Project Overview
+WeatherPulse is a personal full-stack weather monitoring project built for portfolio-quality presentation.
+It provides live city weather data, forecast visualization, historical persistence, and a polished React dashboard.
 
-This project aims to develop a real-time data processing system that monitors weather conditions and provides summarized insights using rollups and aggregates. The system retrieves weather data from the OpenWeatherMap API and focuses on key weather parameters such as temperature and main weather conditions.
+## Stack
 
-## Table of Contents
-
-- [Features](#features)
-- [Technologies Used](#technologies-used)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [API Endpoints](#api-endpoints)
-- [Usage](#usage)
-
+- Backend: Java 17, Spring Boot 3, Spring Data JPA
+- Database: H2 (default), MySQL-compatible via environment variables
+- Weather provider: OpenWeatherMap API
+- Frontend: React + Vite
+- Deployment-ready: Docker (backend), Vercel config (frontend), Render blueprint (backend)
 
 ## Features
-- Fetch current weather data for a specific city.
-- Retrieve weather forecasts.
-- Get historical weather data for a specific date.
-- Generate a summary of weather data.
-- Set weather thresholds for alerts.
-- Check for weather alerts based on current conditions.
-- Simulate weather data for a specific city.
-- Generate weather trends for analysis.
 
-## Technologies Used
-- Java 17+
-- Spring Boot
-- Hibernate
-- MySQL
-- OpenWeatherMap API
-- Postman for testing
+- Live weather for any city (`/api/weather/current/{city}`)
+- 5-day forecast (`/api/weather/forecast/{city}`)
+- Historical weather by date (`/api/weather/history/{city}?date=yyyy-MM-dd`)
+- Daily weather summary (`/api/weather/summary/{city}?date=yyyy-MM-dd`)
+- Threshold-based alert checks
+- Auto-poll scheduler for tracked cities
+- Recruiter-ready responsive frontend with live refresh
 
-## Installation
+## Project Structure
 
-1. **Clone the Repository**:
-   ```bash
-   git clone https://github.com/nidak7/WeatherMonitoringSystem.git
-   cd WeatherMonitoringSystem
+```text
+weather/
+  src/                      # Spring Boot API
+  frontend/                 # React app
+  Dockerfile                # Backend container
+  render.yaml               # Render backend deployment template
+  .env.example              # Backend env reference
+```
 
-### Configuration
+## Backend Setup
 
-Before running the application, you need to configure the `application.properties` file located in `src/main/resources`. Below are the required properties and how to set them up.
+1. Create an OpenWeatherMap API key.
+2. Copy `.env.example` values into your environment.
+3. Run:
 
-#### Step 1: Database Configuration
-You need to provide your MySQL database connection details in the `application.properties` file.
+```bash
+./mvnw spring-boot:run
+```
 
-1. Open the `application.properties` file.
-2. Set the following properties:
+Server starts on `http://localhost:8080` by default.
 
-```properties
-# Database Configuration
-spring.datasource.url=jdbc:mysql://localhost:3306/weather_db
-spring.datasource.username=your_db_username
-spring.datasource.password=your_db_password
+## Frontend Setup
 
-# OpenWeatherMap API Configuration
-openWeatherMap.api.key=your_api_key
- ```
-## Usage
+1. Go to frontend folder:
 
-Once the application is running, you can use **Postman** to test the following endpoints.
+```bash
+cd frontend
+```
 
-### API Endpoints
+2. Set API base URL:
 
-### 1. **Fetch Weather Data**
-- **Method**: `GET`
-- **Endpoint**: `/api/weather/fetch/{city}`
-- **Description**: Fetches and stores the current weather data for the specified city.
-- **Path Parameters**:
-   - `city`: Name of the city to fetch weather data for.
+```bash
+cp .env.example .env
+```
 
+3. Install and run:
 
-### 2. **Get Weather Summary**
-- **Endpoint**: `GET /api/weather/summary/{city}`
-- **Description**: Retrieves current weather data for a specified city.
-- **Query Parameters**:
-    - `city`: Name of the city
+```bash
+npm install
+npm run dev
+```
 
+Frontend starts on `http://localhost:5173`.
 
-### 3. **Set Threshold**
-- **Endpoint**: `POST /api/weather/threshold`
-- **Description**: Sets a weather threshold for alerts.
-- **Request Body Example**:
-    ```json
-    {
-      "attribute": "age",
-      "operator": ">",
-      "value": "18"
-    }
-    ```
-- **Expected Response**:
-  ```
-  Weather threshold set successfully!
-    
-  ```
+## Important Environment Variables
 
-### 4. **Fetch Current Weather**
-- **Endpoint**: `GET /api/weather/current/{city}`
-- **Description**: Retrieves the current weather data for the specified city.
-- **Path Parameters**:
-    `city`: Name of the city
-- **Expected Response**:
-```json
-    {
-      "data": {
-        "id": 142,
-        "city": "Chennai",
-        "temperature": 29.95,
-        "feelsLike": 36.95,
-        "weatherCondition": "Mist",
-        "humidity": 83.0,
-        "windSpeed": 3.09,
-        "timestamp": "2024-10-25T20:47:00"
-      },
-      "message": "Weather data fetched successfully for Chennai"
-    }
-  ```
+### Backend
 
-### 5. **Get Weather Forecast**
-- **Endpoint**: `GET /api/weather/forecast/{city}`
-- **Description**: Retrieves the weather forecast for the specified city.
-- **Path Parameters**:
-  `city`: Name of the city
+- `OPENWEATHER_API_KEY` (required)
+- `PORT` (optional, default `8080`)
+- `APP_CORS_ALLOWED_ORIGINS` (optional)
+- `SPRING_DATASOURCE_*` (optional for external DB)
 
+### Frontend
 
-### 6. **Fetch Weather History**
-- **Endpoint**: `GET /api/weather/history/{city}`
-- **Description**:  Retrieves historical weather data for the specified city on a given date.
-- **Path Parameters**:
-  `city`: Name of the city
-- **Query  Parameters**:
-    `date`: Date in yyyy-MM-dd format.
+- `VITE_API_BASE_URL` (API URL, default `http://localhost:8080`)
 
-### 7. **Check Threshold**
-- **Endpoint**: `POST /api/weather/check`
-- **Description**:Checks for weather alerts based on current conditions.
-- **Request Body Example**:
-    ```json
-    {
-    "temperature": 50.0,
-    "humidity": 60.0
-    }
-    ```
-- **Expected Response**:
-  ```
-  ALERT: Temperature exceeds threshold of 25.0°C!
-    
-  ```
+## API Endpoints
 
-### 8. **Simulate Weather Data**
-- **Endpoint**: `POST /api/weather/simulate/{city}`
-- **Description**: Simulates weather data for a specific city.
-- **Path Parameters**:
-  `city`: Name of the city
-- **Expected Response**:
-```json
-    {
-      "id": 149,
-      "city": "Rajasthan",
-      "temperature": 27.83,
-      "feelsLike": 26.78,
-      "weatherCondition": "clear sky",
-      "humidity": 25.0,
-      "windSpeed": 3.1,
-      "timestamp": "2024-10-25T20:55:53.4665173"
-    } 
-  ```
+- `GET /api/weather/current/{city}`
+- `GET /api/weather/forecast/{city}`
+- `GET /api/weather/fetch/{city}`
+- `GET /api/weather/history/{city}?date=yyyy-MM-dd`
+- `GET /api/weather/summary/{city}?date=yyyy-MM-dd`
+- `GET /api/weather/trends/{city}`
+- `GET /api/weather/cities`
+- `POST /api/weather/threshold`
+- `POST /api/weather/check`
+- `POST /api/weather/simulate/{city}`
 
-### 9. **Get Weather Trends**
-- **Endpoint**: `GET /api/weather/trends/{city}`
-- **Description**: Retrieves weather trends for analysis.
-- **Path Parameters**:
-  `city`: Name of the city
-- **Expected Response**:
-```Weather trends for Bangalore:
+## Deployment
 
-    Date	Temperature	Condition
-    2024-10-23	22.27°C	Rain
-    2024-10-24	22.1°C	Drizzle
-    2024-10-24	24.16°C	Clouds
-    2024-10-24	30.0°C	Haze
-  ```
+### Backend (Render or any Docker host)
+
+- Build/deploy using `Dockerfile`
+- Add env vars from `.env.example`
+- Use `render.yaml` directly on Render for quick setup
+
+### Frontend (Vercel)
+
+- Import `frontend/` as project root
+- Add `VITE_API_BASE_URL=https://your-backend-domain`
+- `vercel.json` is already configured for Vite SPA routing
+
+## Notes
+
+- The app defaults to H2 file DB for local simplicity.
+- Switch to MySQL by setting `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, and driver class.
+- If `OPENWEATHER_API_KEY` is missing, API returns a clear error response.

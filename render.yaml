@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: weatherpulse-api
+    env: docker
+    rootDir: .
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    envVars:
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: APP_CORS_ALLOWED_ORIGINS
+        value: https://your-frontend-domain.vercel.app

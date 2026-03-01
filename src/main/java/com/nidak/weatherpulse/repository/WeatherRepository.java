@@ -1,6 +1,6 @@
-package com.zeotap_assignment_2.weather.repository;
+package com.nidak.weatherpulse.repository;
 
-import com.zeotap_assignment_2.weather.entity.Weather;
+import com.nidak.weatherpulse.entity.Weather;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.LocalDateTime;

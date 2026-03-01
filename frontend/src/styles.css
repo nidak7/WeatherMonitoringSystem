@@ -165,7 +165,12 @@ h1 {
   gap: 0.7rem;
 }
 
+.search-box-wrap {
+  position: relative;
+}
+
 .search-row input {
+  width: 100%;
   border: 1px solid rgba(170, 155, 209, 0.5);
   border-radius: 13px;
   padding: 0.78rem 0.92rem;
@@ -195,6 +200,40 @@ h1 {
 
 .search-row button:hover {
   transform: translateY(-1px);
+}
+
+.suggestions-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  z-index: 8;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(167, 154, 209, 0.45);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  max-height: 240px;
+  overflow: auto;
+}
+
+.suggestion-item {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 0.58rem 0.7rem;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.suggestion-item:hover {
+  background: rgba(236, 230, 255, 0.7);
+}
+
+.suggestion-item.muted {
+  color: var(--muted);
+  cursor: default;
 }
 
 .city-chips {
@@ -261,6 +300,41 @@ h1 {
 .condition {
   margin: 0.35rem 0 0;
   font-size: 1rem;
+}
+
+.condition-sub {
+  margin: 0.24rem 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  text-transform: capitalize;
+}
+
+.risk-pill {
+  margin: 0.62rem 0 0;
+  width: fit-content;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.risk-low {
+  color: #365f49;
+  border-color: rgba(96, 182, 141, 0.55);
+  background: rgba(214, 249, 232, 0.88);
+}
+
+.risk-medium {
+  color: #6b4f20;
+  border-color: rgba(217, 178, 100, 0.55);
+  background: rgba(255, 242, 216, 0.9);
+}
+
+.risk-high {
+  color: #7f2f43;
+  border-color: rgba(222, 127, 154, 0.58);
+  background: rgba(255, 225, 234, 0.9);
 }
 
 .timestamp {
@@ -365,6 +439,37 @@ h1 {
   padding: 0.82rem;
 }
 
+.watch-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.62rem;
+}
+
+.watch-card {
+  border: 1px solid rgba(168, 152, 208, 0.42);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0.7rem;
+}
+
+.watch-city {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.watch-temp {
+  margin: 0.28rem 0 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.watch-condition {
+  margin: 0.16rem 0 0;
+  font-size: 0.84rem;
+}
+
 .detail-card h3 {
   margin: 0 0 0.58rem;
   font-size: 0.95rem;
@@ -435,6 +540,10 @@ h1 {
   .forecast-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .watch-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 700px) {
@@ -452,6 +561,10 @@ h1 {
   }
 
   .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .watch-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -32,6 +32,15 @@ public class Weather {
     @Column(nullable = false)
     private String weatherCondition;
 
+    @Column
+    private String weatherDescription;
+
+    @Column
+    private Integer weatherCode;
+
+    @Column
+    private String weatherRisk;
+
     @Column(nullable = false)
     private double humidity;
 

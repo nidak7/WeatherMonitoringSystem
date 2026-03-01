@@ -136,6 +136,9 @@ public class WeatherService {
         weatherRecord.setTemperature(mappedWeather.getTemperature());
         weatherRecord.setFeelsLike(mappedWeather.getFeelsLike());
         weatherRecord.setWeatherCondition(mappedWeather.getWeatherCondition());
+        weatherRecord.setWeatherDescription(mappedWeather.getWeatherDescription());
+        weatherRecord.setWeatherCode(mappedWeather.getWeatherCode());
+        weatherRecord.setWeatherRisk(mappedWeather.getWeatherRisk());
         weatherRecord.setHumidity(mappedWeather.getHumidity());
         weatherRecord.setWindSpeed(mappedWeather.getWindSpeed());
         weatherRecord.setTimestamp(mappedWeather.getTimestamp());
@@ -182,15 +185,22 @@ public class WeatherService {
             JSONObject forecastData = list.getJSONObject(i);
             JSONObject main = forecastData.getJSONObject("main");
             JSONObject wind = forecastData.optJSONObject("wind");
-            String weatherCondition = forecastData.getJSONArray("weather").getJSONObject(0).getString("main");
+            JSONObject weatherObject = forecastData.getJSONArray("weather").getJSONObject(0);
+            String weatherCondition = weatherObject.getString("main");
+            String weatherDescription = weatherObject.optString("description", weatherCondition);
+            int weatherCode = weatherObject.optInt("id", 0);
+            double windSpeed = wind == null ? 0 : wind.optDouble("speed", 0);
 
             Weather forecast = new Weather();
             forecast.setCity(normalizedCity);
             forecast.setTemperature(roundToTwoDecimalPlaces(kelvinToCelsius(main.getDouble("temp"))));
             forecast.setFeelsLike(roundToTwoDecimalPlaces(kelvinToCelsius(main.optDouble("feels_like", 0))));
             forecast.setHumidity(main.optDouble("humidity", 0));
-            forecast.setWindSpeed(wind == null ? 0 : wind.optDouble("speed", 0));
+            forecast.setWindSpeed(windSpeed);
             forecast.setWeatherCondition(weatherCondition);
+            forecast.setWeatherDescription(weatherDescription);
+            forecast.setWeatherCode(weatherCode);
+            forecast.setWeatherRisk(determineWeatherRisk(weatherCode, weatherCondition, weatherDescription, windSpeed));
             forecast.setTimestamp(LocalDateTime.parse(forecastData.getString("dt_txt"), FORECAST_TIMESTAMP_FORMATTER));
             forecastList.add(forecast);
         }
@@ -276,15 +286,22 @@ public class WeatherService {
     private Weather mapCurrentWeather(JSONObject weatherJson, String city) {
         JSONObject main = weatherJson.getJSONObject("main");
         JSONObject wind = weatherJson.optJSONObject("wind");
-        String weatherCondition = weatherJson.getJSONArray("weather").getJSONObject(0).getString("main");
+        JSONObject weatherObject = weatherJson.getJSONArray("weather").getJSONObject(0);
+        String weatherCondition = weatherObject.getString("main");
+        String weatherDescription = weatherObject.optString("description", weatherCondition);
+        int weatherCode = weatherObject.optInt("id", 0);
+        double windSpeed = wind == null ? 0 : wind.optDouble("speed", 0);
 
         Weather currentWeather = new Weather();
         currentWeather.setCity(city);
         currentWeather.setTemperature(roundToTwoDecimalPlaces(kelvinToCelsius(main.getDouble("temp"))));
         currentWeather.setFeelsLike(roundToTwoDecimalPlaces(kelvinToCelsius(main.optDouble("feels_like", 0))));
         currentWeather.setWeatherCondition(weatherCondition);
+        currentWeather.setWeatherDescription(weatherDescription);
+        currentWeather.setWeatherCode(weatherCode);
+        currentWeather.setWeatherRisk(determineWeatherRisk(weatherCode, weatherCondition, weatherDescription, windSpeed));
         currentWeather.setHumidity(main.optDouble("humidity", 0));
-        currentWeather.setWindSpeed(wind == null ? 0 : wind.optDouble("speed", 0));
+        currentWeather.setWindSpeed(windSpeed);
         currentWeather.setTimestamp(LocalDateTime.now().withSecond(0).withNano(0));
         return currentWeather;
     }
@@ -479,5 +496,50 @@ public class WeatherService {
             return true;
         }
         return timestamp.isBefore(LocalDateTime.now().minusMinutes(weatherDataStaleMinutes));
+    }
+
+    private String determineWeatherRisk(int weatherCode, String weatherCondition, String weatherDescription, double windSpeed) {
+        String condition = weatherCondition == null ? "" : weatherCondition.toLowerCase(Locale.ROOT);
+        String description = weatherDescription == null ? "" : weatherDescription.toLowerCase(Locale.ROOT);
+
+        if (weatherCode >= 200 && weatherCode < 300) {
+            if (windSpeed >= 20) {
+                return "Cyclone/Severe Storm Risk";
+            }
+            return "Thunderstorm Risk";
+        }
+
+        if (weatherCode >= 600 && weatherCode < 700) {
+            return "Snow Risk";
+        }
+
+        if (weatherCode >= 700 && weatherCode < 800) {
+            if (description.contains("sand") || description.contains("dust")) {
+                return "Sandstorm/Dust Risk";
+            }
+            if (description.contains("tornado")) {
+                return "Cyclone/Tornado Risk";
+            }
+            if (description.contains("squall")) {
+                return "High Wind Squall Risk";
+            }
+        }
+
+        if (description.contains("hurricane") || description.contains("cyclone")) {
+            return "Cyclone Risk";
+        }
+
+        if (windSpeed >= 24) {
+            return "Cyclone-like Wind Risk";
+        }
+        if (windSpeed >= 15) {
+            return "Strong Wind Risk";
+        }
+
+        if ("rain".equals(condition) || "drizzle".equals(condition)) {
+            return "Rain Risk";
+        }
+
+        return "Low Risk";
     }
 }

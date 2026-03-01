@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
 const defaultCities = ["Bangalore", "Mumbai", "Delhi", "Chennai", "Hyderabad", "Kolkata"];
+
 const weatherCodeMap = {
   0: "Clear",
   1: "Mostly clear",
@@ -17,7 +18,7 @@ const weatherCodeMap = {
   65: "Heavy rain",
   71: "Snow",
   73: "Snow",
-  75: "Snow",
+  75: "Heavy snow",
   80: "Rain showers",
   81: "Rain showers",
   82: "Heavy showers",
@@ -59,6 +60,26 @@ function formatDateOnly(value) {
   }).format(new Date(value));
 }
 
+function deriveRisk(condition, description, windSpeed) {
+  const text = `${condition || ""} ${description || ""}`.toLowerCase();
+  if (text.includes("cyclone") || text.includes("hurricane") || text.includes("tornado")) return "Cyclone Risk";
+  if (text.includes("sand") || text.includes("dust")) return "Sandstorm/Dust Risk";
+  if (text.includes("snow")) return "Snow Risk";
+  if (text.includes("thunder")) return "Thunderstorm Risk";
+  if ((windSpeed || 0) >= 20) return "Cyclone-like Wind Risk";
+  if ((windSpeed || 0) >= 14) return "Strong Wind Risk";
+  if (text.includes("rain")) return "Rain Risk";
+  return "Low Risk";
+}
+
+function riskClass(risk) {
+  if (!risk) return "risk-low";
+  const label = risk.toLowerCase();
+  if (label.includes("cyclone") || label.includes("sandstorm")) return "risk-high";
+  if (label.includes("snow") || label.includes("thunder") || label.includes("strong")) return "risk-medium";
+  return "risk-low";
+}
+
 async function fetchJson(url) {
   const response = await fetch(url);
   const payload = await response.json().catch(() => ({}));
@@ -68,18 +89,37 @@ async function fetchJson(url) {
   return payload;
 }
 
-async function fetchPublicWeather(city) {
-  const geocodeUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
-    city
-  )}&count=1&language=en&format=json`;
-  const geocodeResponse = await fetch(geocodeUrl);
-  const geocodeJson = await geocodeResponse.json();
+async function searchPlaces(query) {
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+    query
+  )}&count=6&language=en&format=json`;
+  const response = await fetch(url);
+  const payload = await response.json();
+  if (!payload?.results?.length) return [];
+  return payload.results.map((place) => {
+    const labelParts = [place.name, place.admin1, place.country].filter(Boolean);
+    return {
+      id: `${place.latitude}-${place.longitude}-${place.name}`,
+      name: place.name,
+      label: labelParts.join(", ")
+    };
+  });
+}
 
-  if (!geocodeJson?.results?.length) {
+async function fetchPublicWeather(city) {
+  const suggestions = await searchPlaces(city);
+  if (!suggestions.length) {
     throw new Error(`City not found: ${city}`);
   }
 
+  const selected = suggestions[0];
+  const geocodeUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(
+    selected.name
+  )}&count=1&language=en&format=json`;
+  const geocodeResponse = await fetch(geocodeUrl);
+  const geocodeJson = await geocodeResponse.json();
   const place = geocodeJson.results[0];
+
   const weatherUrl =
     `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}` +
     `&longitude=${place.longitude}` +
@@ -93,17 +133,21 @@ async function fetchPublicWeather(city) {
 
   const forecast = [];
   for (let i = 0; i < hourly.time.length && forecast.length < 12; i += 3) {
+    const condition = weatherCodeMap[hourly.weather_code[i]] || "Weather update";
     forecast.push({
       city: place.name,
       temperature: hourly.temperature_2m[i],
       feelsLike: hourly.apparent_temperature[i],
       humidity: hourly.relative_humidity_2m[i],
       windSpeed: hourly.wind_speed_10m[i],
-      weatherCondition: weatherCodeMap[hourly.weather_code[i]] || "Weather update",
+      weatherCondition: condition,
+      weatherDescription: condition,
+      weatherRisk: deriveRisk(condition, condition, hourly.wind_speed_10m[i]),
       timestamp: hourly.time[i]
     });
   }
 
+  const currentCondition = weatherCodeMap[current.weather_code] || "Weather update";
   return {
     currentWeather: {
       city: place.name,
@@ -111,7 +155,9 @@ async function fetchPublicWeather(city) {
       feelsLike: current.apparent_temperature,
       humidity: current.relative_humidity_2m,
       windSpeed: current.wind_speed_10m,
-      weatherCondition: weatherCodeMap[current.weather_code] || "Weather update",
+      weatherCondition: currentCondition,
+      weatherDescription: currentCondition,
+      weatherRisk: deriveRisk(currentCondition, currentCondition, current.wind_speed_10m),
       timestamp: current.time
     },
     forecast
@@ -122,8 +168,13 @@ function App() {
   const [cityInput, setCityInput] = useState("Bangalore");
   const [activeCity, setActiveCity] = useState("Bangalore");
   const [cities, setCities] = useState(defaultCities);
+  const [placeSuggestions, setPlaceSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+
   const [currentWeather, setCurrentWeather] = useState(null);
   const [forecast, setForecast] = useState([]);
+  const [trackedWeather, setTrackedWeather] = useState([]);
   const [dailySummary, setDailySummary] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [analyticsAvailable, setAnalyticsAvailable] = useState(true);
@@ -140,36 +191,61 @@ function App() {
     setError("");
     setSelectedForecastIndex(0);
 
-    try {
-      const [currentPayload, forecastPayload, summaryPayload, alertsPayload] = await Promise.all([
-        fetchJson(`${API_BASE_URL}/api/weather/current/${encodeURIComponent(normalizedCity)}`),
-        fetchJson(`${API_BASE_URL}/api/weather/forecast/${encodeURIComponent(normalizedCity)}`),
-        fetchJson(`${API_BASE_URL}/api/weather/daily-summary/${encodeURIComponent(normalizedCity)}`),
-        fetchJson(`${API_BASE_URL}/api/weather/alerts?city=${encodeURIComponent(normalizedCity)}`)
-      ]);
+    let currentData = null;
+    let forecastData = [];
 
-      setCurrentWeather(currentPayload.data || null);
-      setForecast(Array.isArray(forecastPayload.data) ? forecastPayload.data.slice(0, 12) : []);
-      setDailySummary(summaryPayload.data || null);
-      setAlerts(Array.isArray(alertsPayload.data) ? alertsPayload.data.slice(0, 5) : []);
-      setAnalyticsAvailable(true);
-    } catch (backendError) {
-      setAnalyticsAvailable(false);
-      setDailySummary(null);
-      setAlerts([]);
+    try {
+      const [currentPayload, forecastPayload] = await Promise.all([
+        fetchJson(`${API_BASE_URL}/api/weather/current/${encodeURIComponent(normalizedCity)}`),
+        fetchJson(`${API_BASE_URL}/api/weather/forecast/${encodeURIComponent(normalizedCity)}`)
+      ]);
+      currentData = currentPayload.data || null;
+      forecastData = Array.isArray(forecastPayload.data) ? forecastPayload.data.slice(0, 12) : [];
+      setCurrentWeather(currentData);
+      setForecast(forecastData);
+      setError("");
+    } catch (backendCoreError) {
       try {
         const fallback = await fetchPublicWeather(normalizedCity);
-        setCurrentWeather(fallback.currentWeather);
-        setForecast(fallback.forecast);
-        setError("");
+        currentData = fallback.currentWeather;
+        forecastData = fallback.forecast;
+        setCurrentWeather(currentData);
+        setForecast(forecastData);
       } catch (fallbackError) {
         setCurrentWeather(null);
         setForecast([]);
-        setError(fallbackError.message || backendError.message || "Unable to load weather data right now.");
+        setDailySummary(null);
+        setAlerts([]);
+        setTrackedWeather([]);
+        setAnalyticsAvailable(false);
+        setError(fallbackError.message || backendCoreError.message || "Unable to load weather data.");
+        setLoading(false);
+        return;
       }
-    } finally {
-      setLoading(false);
     }
+
+    try {
+      const [summaryPayload, alertsPayload] = await Promise.all([
+        fetchJson(`${API_BASE_URL}/api/weather/daily-summary/${encodeURIComponent(normalizedCity)}`),
+        fetchJson(`${API_BASE_URL}/api/weather/alerts?city=${encodeURIComponent(normalizedCity)}`)
+      ]);
+      setDailySummary(summaryPayload.data || null);
+      setAlerts(Array.isArray(alertsPayload.data) ? alertsPayload.data.slice(0, 5) : []);
+      setAnalyticsAvailable(true);
+    } catch {
+      setDailySummary(null);
+      setAlerts([]);
+      setAnalyticsAvailable(false);
+    }
+
+    try {
+      const trackedPayload = await fetchJson(`${API_BASE_URL}/api/weather/current/tracked`);
+      setTrackedWeather(Array.isArray(trackedPayload.data) ? trackedPayload.data : []);
+    } catch {
+      setTrackedWeather(currentData ? [currentData] : []);
+    }
+
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -183,6 +259,28 @@ function App() {
         setCities(defaultCities);
       });
   }, []);
+
+  useEffect(() => {
+    const query = cityInput.trim();
+    if (query.length < 2) {
+      setPlaceSuggestions([]);
+      return;
+    }
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        setSuggestionLoading(true);
+        const suggestions = await searchPlaces(query);
+        setPlaceSuggestions(suggestions);
+      } catch {
+        setPlaceSuggestions([]);
+      } finally {
+        setSuggestionLoading(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(timeoutId);
+  }, [cityInput]);
 
   useEffect(() => {
     loadWeather(activeCity);
@@ -205,6 +303,7 @@ function App() {
     const normalizedCity = cityInput.trim();
     if (!normalizedCity) return;
     setActiveCity(normalizedCity);
+    setShowSuggestions(false);
   };
 
   return (
@@ -215,24 +314,12 @@ function App() {
         <div>
           <p className="eyebrow">Live Weather Dashboard</p>
           <h1>WeatherPulse</h1>
-          <p className="subtext">Current conditions and short-term forecast for your city.</p>
+          <p className="subtext">Search cities worldwide, track risks, and monitor regional weather patterns.</p>
         </div>
         <div className="header-controls">
           <div className="unit-toggle" role="group" aria-label="Temperature unit">
-            <button
-              type="button"
-              className={unit === "C" ? "active" : ""}
-              onClick={() => setUnit("C")}
-            >
-              C
-            </button>
-            <button
-              type="button"
-              className={unit === "F" ? "active" : ""}
-              onClick={() => setUnit("F")}
-            >
-              F
-            </button>
+            <button type="button" className={unit === "C" ? "active" : ""} onClick={() => setUnit("C")}>C</button>
+            <button type="button" className={unit === "F" ? "active" : ""} onClick={() => setUnit("F")}>F</button>
           </div>
         </div>
       </header>
@@ -240,12 +327,35 @@ function App() {
       <main className="layout">
         <section className="panel">
           <form className="search-row" onSubmit={handleSearchSubmit}>
-            <input
-              value={cityInput}
-              onChange={(event) => setCityInput(event.target.value)}
-              placeholder="Search city (for example: Pune, London, Tokyo)"
-              aria-label="City"
-            />
+            <div className="search-box-wrap">
+              <input
+                value={cityInput}
+                onChange={(event) => setCityInput(event.target.value)}
+                onFocus={() => setShowSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 120)}
+                placeholder="Search city, state, or country"
+                aria-label="City"
+              />
+              {showSuggestions && (placeSuggestions.length > 0 || suggestionLoading) ? (
+                <div className="suggestions-menu">
+                  {suggestionLoading ? <p className="suggestion-item muted">Searching...</p> : null}
+                  {placeSuggestions.map((place) => (
+                    <button
+                      key={place.id}
+                      type="button"
+                      className="suggestion-item"
+                      onMouseDown={() => {
+                        setCityInput(place.name);
+                        setActiveCity(place.name);
+                        setShowSuggestions(false);
+                      }}
+                    >
+                      {place.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <button type="submit">Search</button>
           </form>
 
@@ -275,6 +385,10 @@ function App() {
                 <span>{unit}</span>
               </h2>
               <p className="condition">{currentWeather?.weatherCondition || "Waiting for data"}</p>
+              <p className="condition-sub">{currentWeather?.weatherDescription || "No detailed description yet"}</p>
+              <p className={`risk-pill ${riskClass(currentWeather?.weatherRisk || deriveRisk(currentWeather?.weatherCondition, currentWeather?.weatherDescription, currentWeather?.windSpeed))}`}>
+                {currentWeather?.weatherRisk || deriveRisk(currentWeather?.weatherCondition, currentWeather?.weatherDescription, currentWeather?.windSpeed)}
+              </p>
               <p className="timestamp">Updated {formatDateTime(currentWeather?.timestamp)}</p>
             </article>
 
@@ -325,11 +439,31 @@ function App() {
                 <p>Feels like: <strong>{toDisplayTemp(selectedForecast.feelsLike, unit)} {unit}</strong></p>
                 <p>Humidity: <strong>{selectedForecast.humidity}%</strong></p>
                 <p>Wind: <strong>{selectedForecast.windSpeed} m/s</strong></p>
+                <p>Risk: <strong>{selectedForecast.weatherRisk || deriveRisk(selectedForecast.weatherCondition, selectedForecast.weatherDescription, selectedForecast.windSpeed)}</strong></p>
               </div>
             ) : (
               <p className="empty-msg">{loading ? "Loading forecast..." : "No forecast data yet."}</p>
             )}
           </article>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Regional Watch</h2>
+            <p>Multi-city risk view similar to operational weather dashboards</p>
+          </div>
+          <div className="watch-grid">
+            {trackedWeather.map((item, index) => (
+              <article className="watch-card" key={`${item.city}-${item.timestamp}-${index}`}>
+                <p className="watch-city">{item.city}</p>
+                <p className="watch-temp">{toDisplayTemp(item.temperature, unit)} {unit}</p>
+                <p className="watch-condition">{item.weatherCondition}</p>
+                <p className={`risk-pill ${riskClass(item.weatherRisk || deriveRisk(item.weatherCondition, item.weatherDescription, item.windSpeed))}`}>
+                  {item.weatherRisk || deriveRisk(item.weatherCondition, item.weatherDescription, item.windSpeed)}
+                </p>
+              </article>
+            ))}
+          </div>
         </section>
 
         <section className="panel">
@@ -355,7 +489,7 @@ function App() {
                   ? "Loading daily summary..."
                   : analyticsAvailable
                     ? "No summary data yet."
-                    : "Detailed summary appears once the server analytics endpoint is connected."}
+                    : "Detailed summary appears when the analytics endpoint is active."}
               </p>
             )}
           </article>
@@ -376,7 +510,7 @@ function App() {
               </div>
             ) : (
               <p className="empty-msg">
-                {analyticsAvailable ? "No alerts triggered for this city." : "Alert history is available from server mode."}
+                {analyticsAvailable ? "No alerts triggered for this city." : "Alert history appears in full server mode."}
               </p>
             )}
           </article>
